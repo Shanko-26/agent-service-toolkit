@@ -65,7 +65,15 @@ async def main() -> None:
             agent_url = f"http://{host}:{port}"
         try:
             with st.spinner("Connecting to agent service..."):
+                # Set the AUTH_SECRET environment variable directly
+                os.environ["AUTH_SECRET"] = "development_secret_123"
+                # Initialize clients without auth_header
                 st.session_state.agent_client = AgentClient(base_url=agent_url)
+                # Set the default agent to automotive immediately after initialization
+                try:
+                    st.session_state.agent_client.update_agent("automotive")
+                except AgentClientError as e:
+                    st.warning(f"Could not set default agent to 'automotive': {e}. Using service default.")
                 st.session_state.file_client = FileClient(base_url=agent_url)
         except (AgentClientError, FileClientError) as e:
             st.error(f"Error connecting to service at {agent_url}: {e}")
@@ -105,6 +113,10 @@ async def main() -> None:
     if "selected_file_metadata" not in st.session_state:
         st.session_state.selected_file_metadata = None
     
+    # Initialize file context for chat history
+    if "file_context" not in st.session_state:
+        st.session_state.file_context = {}
+    
     # If a file is selected, fetch its metadata
     if st.session_state.selected_file_id and (
         st.session_state.selected_file_metadata is None or 
@@ -116,6 +128,18 @@ async def main() -> None:
                 st.toast(f"Fetching metadata for file ID: {st.session_state.selected_file_id}")
                 metadata = await file_client.get_file_metadata(st.session_state.selected_file_id)
                 st.session_state.selected_file_metadata = metadata
+                
+                # Update file context when a new file is selected
+                st.session_state.file_context[st.session_state.selected_file_id] = {
+                    "filename": metadata.filename,
+                    "channel_count": len(metadata.channels) if metadata.channels else 0,
+                    "duration": metadata.duration,
+                    "start_time": metadata.start_time,
+                    "end_time": metadata.end_time,
+                    "channels": list(metadata.channels.keys()) if metadata.channels else [],
+                    "last_accessed": datetime.now().isoformat(),
+                }
+                
                 st.toast("Metadata loaded successfully!")
         except FileClientError as e:
             st.error(f"Error loading file metadata: {e}")
@@ -203,6 +227,9 @@ async def main() -> None:
                                 st.session_state.files = await file_client.list_files()
                                 if st.session_state.selected_file_id == file.file_id:
                                     st.session_state.selected_file_id = None
+                                    # Remove from file context
+                                    if file.file_id in st.session_state.file_context:
+                                        del st.session_state.file_context[file.file_id]
                                 st.success(f"Deleted {file.filename}")
                                 st.rerun()
                         except FileClientError as e:
@@ -224,7 +251,9 @@ async def main() -> None:
             model_idx = agent_client.info.models.index(agent_client.info.default_model)
             model = st.selectbox("LLM to use", options=agent_client.info.models, index=model_idx)
             agent_list = [a.key for a in agent_client.info.agents]
-            agent_idx = agent_list.index(agent_client.info.default_agent)
+            # Set the default agent to "automotive" instead of using the server default
+            default_agent = "automotive"
+            agent_idx = agent_list.index(default_agent) if default_agent in agent_list else agent_list.index(agent_client.info.default_agent)
             agent_client.agent = st.selectbox(
                 "Agent to use",
                 options=agent_list,
@@ -340,12 +369,37 @@ async def main() -> None:
                     else:
                         st.info("No channels match your filter criteria.")
 
+                # Allow selection of channels for context
+                if "selected_channels" not in st.session_state:
+                    st.session_state.selected_channels = []
+                
+                # Add a multi-select for channels - using a section instead of nested expander
+                st.subheader("Channel Selection")
+                all_channels = [channel["Name"] for channel in channels_data]
+                selected_channel_names = st.multiselect(
+                    "Select channels to analyze:",
+                    options=all_channels,
+                    default=st.session_state.selected_channels,
+                    help="Select channels that you want to analyze. These will be included in the context for the AI."
+                )
+                st.session_state.selected_channels = selected_channel_names
+                
+                if st.button("Clear Selection"):
+                    st.session_state.selected_channels = []
+                    st.rerun()
+
     if len(messages) == 0:
         agent_message = "Hello! I'm your automotive data copilot. Upload MDF files and ask me questions about the data."
         if st.session_state.selected_file_id:
             file_metadata = next((f for f in st.session_state.files if f.file_id == st.session_state.selected_file_id), None)
             if file_metadata:
                 agent_message += f"\n\nI see you've selected the file '{file_metadata.filename}'. What would you like to know about this data?"
+                
+                if st.session_state.selected_file_metadata and st.session_state.selected_file_metadata.channels:
+                    channel_count = len(st.session_state.selected_file_metadata.channels)
+                    sample_channels = list(st.session_state.selected_file_metadata.channels.keys())[:3]
+                    agent_message += f"\n\nThis file contains {channel_count} channels. Some examples include: {', '.join(sample_channels)}."
+                    agent_message += "\n\nYou can ask me to analyze specific channels, plot data, find anomalies, or calculate statistics."
         
         with st.chat_message("ai"):
             st.write(agent_message)
@@ -367,12 +421,52 @@ async def main() -> None:
             if st.session_state.selected_file_id:
                 file_metadata = next((f for f in st.session_state.files if f.file_id == st.session_state.selected_file_id), None)
                 if file_metadata:
-                    agent_config["current_file"] = {
+                    # Basic file context
+                    file_context = {
                         "file_id": file_metadata.file_id,
                         "filename": file_metadata.filename,
                         "channel_count": file_metadata.channel_count,
                         "duration": file_metadata.duration,
                     }
+                    
+                    # Add detailed metadata if available
+                    if st.session_state.selected_file_metadata:
+                        metadata = st.session_state.selected_file_metadata
+                        file_context.update({
+                            "start_time": metadata.start_time,
+                            "end_time": metadata.end_time,
+                            "sample_count": metadata.sample_count,
+                            "file_type": metadata.file_type,
+                        })
+                        
+                        # Add selected channels if any
+                        if hasattr(st.session_state, 'selected_channels') and st.session_state.selected_channels:
+                            file_context["selected_channels"] = st.session_state.selected_channels
+                        
+                        # Add a sample of available channels (up to 10 channels)
+                        if metadata.channels:
+                            channel_names = list(metadata.channels.keys())
+                            file_context["available_channels"] = channel_names[:10]
+                            
+                            # Add channel details for selected channels
+                            if hasattr(st.session_state, 'selected_channels') and st.session_state.selected_channels:
+                                channel_details = {}
+                                for channel_name in st.session_state.selected_channels:
+                                    # Find the channel by name
+                                    for channel_id, channel in metadata.channels.items():
+                                        if channel.name == channel_name:
+                                            channel_details[channel_name] = {
+                                                "unit": channel.unit,
+                                                "min_value": channel.min_value,
+                                                "max_value": channel.max_value,
+                                                "sampling_rate": channel.sampling_rate,
+                                                "description": channel.description,
+                                                "ecu": channel.ecu,
+                                            }
+                                            break
+                                file_context["channel_details"] = channel_details
+                    
+                    agent_config["current_file"] = file_context
             
             if use_streaming:
                 stream = agent_client.astream(

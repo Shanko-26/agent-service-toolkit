@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 from langgraph.pregel import Pregel
 
+from agents.automotive_agent import automotive_agent
 from agents.bg_task_agent.bg_task_agent import bg_task_agent
 from agents.chatbot import chatbot
 from agents.command_agent import command_agent
@@ -11,7 +12,7 @@ from agents.langgraph_supervisor_agent import langgraph_supervisor_agent
 from agents.research_assistant import research_assistant
 from schema import AgentInfo
 
-DEFAULT_AGENT = "research-assistant"
+DEFAULT_AGENT = "automotive"
 
 
 @dataclass
@@ -34,6 +35,10 @@ agents: dict[str, Agent] = {
     "knowledge-base-agent": Agent(
         description="A retrieval-augmented generation agent using Amazon Bedrock Knowledge Base",
         graph=kb_agent,
+    ),
+    "automotive": Agent(
+        description="An automotive data analysis agent specialized for MDF files", 
+        graph=automotive_agent
     ),
 }
 

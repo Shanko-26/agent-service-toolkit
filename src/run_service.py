@@ -1,14 +1,24 @@
 import asyncio
 import sys
-
 import uvicorn
 from dotenv import load_dotenv
 
 from core import settings
+from service import app  # Import app directly to inspect it
+from service.service import router  # Import router directly
 
 load_dotenv()
 
 if __name__ == "__main__":
+    # Debug: Print all registered routes before
+    print("App routes BEFORE:", [f"{route.path}" for route in app.routes])
+    
+    # Force-register the router with the app
+    app.include_router(router)
+    
+    # Debug: Print all registered routes after
+    print("App routes AFTER:", [f"{route.path}" for route in app.routes])
+    
     # Set Compatible event loop policy on Windows Systems.
     # On Windows systems, the default ProactorEventLoop can cause issues with
     # certain async database drivers like psycopg (PostgreSQL driver).

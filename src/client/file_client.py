@@ -19,6 +19,7 @@ class FileClient:
         self,
         base_url: str = "http://127.0.0.1:8080",
         timeout: float | None = None,
+        auth_header: dict[str, str] | None = None,
     ) -> None:
         """
         Initialize the file client.
@@ -26,16 +27,21 @@ class FileClient:
         Args:
             base_url (str): The base URL of the file management service.
             timeout (float, optional): The timeout for requests.
+            auth_header (dict[str, str], optional): Additional headers to include in requests,
+                such as Authorization header. Default: None
         """
         self.base_url = base_url
         self.auth_secret = os.getenv("AUTH_SECRET")
         self.timeout = timeout
+        self.auth_header = auth_header or {}
 
     @property
     def _headers(self) -> dict[str, str]:
         headers = {}
         if self.auth_secret:
             headers["Authorization"] = f"Bearer {self.auth_secret}"
+        # Add any additional headers
+        headers.update(self.auth_header)
         return headers
 
     async def list_files(self) -> List[MeasurementFile]:
