@@ -1,0 +1,395 @@
+
+# Automotive Data Copilot PRD
+
+## Overview
+Automotive Data Copilot is a modern RAG-based agentic chatbot designed for automotive engineers to interact with measurement data files (.mf4, .mdf, .mat) through natural language. The system intelligently parses, analyzes, and visualizes automotive data, allowing engineers to gain insights without writing code. By combining state-of-the-art LLM technology with specialized automotive data processing, it dramatically reduces the time needed to analyze test drive data, compare measurements, and identify patterns or anomalies.
+
+## Core Features
+
+### File Ingestion and Management
+- Upload and parse automotive measurement files (.mdf, .mf4, .mat)
+- Extract metadata and signal information automatically
+- Create a searchable index of signals with standardized naming
+- Store parsed data efficiently for quick retrieval
+- Support multi-file sessions with persistent context
+
+### Natural Language Signal Processing
+- Translate natural language queries into signal operations
+- Intelligently map common terms to technical signal names
+- Recognize domain-specific automotive terminology
+- Support compound queries across multiple signals
+- Maintain conversational context about previously referenced signals
+
+### Interactive Visualization
+- Generate time-series plots from natural language queries
+- Support multiple visualization types (time series, XY plots, histograms, FFTs)
+- Provide interactive Plotly charts with zoom, pan, and hover tooltips
+- Allow signal comparison across multiple files
+- Export high-quality plots for reports
+
+### Signal Analysis and Transformation
+- Apply filters and transformations via chat commands
+- Perform statistical analysis on signal data
+- Identify and extract specific maneuvers automatically
+- Calculate derived signals based on engineering formulas
+- Support frequency domain analysis (FFT, power spectrum)
+
+### Multi-File Operations
+- Synchronize timestamps across multiple recordings
+- Compare similar maneuvers across different test runs
+- Align signals with different sampling rates
+- Identify anomalies between reference and test runs
+- Generate comparative reports and visualizations
+
+### RAG-Enhanced Knowledge Retrieval
+- Retrieve relevant information from technical documentation
+- Provide context-aware explanations of signal meanings
+- Answer domain-specific questions using indexed knowledge base
+- Cite sources for retrieved information
+- Offer follow-up suggestions based on current analysis
+
+## User Experience
+
+### User Personas
+1. **Test Engineer**: Conducts road tests and needs to quickly validate if test objectives were met
+2. **Data Analyst**: Performs deep analysis on test data to extract insights and patterns
+3. **Calibration Engineer**: Tunes vehicle systems based on measurement data
+4. **Systems Engineer**: Validates system behavior against requirements using test data
+
+### Key User Flows
+1. **Data Exploration Flow**
+   - Upload measurement file(s)
+   - Ask about available signals
+   - Request plots of interesting signals
+   - Ask follow-up questions about observed patterns
+
+2. **Analysis Flow**
+   - Upload reference and test files
+   - Request specific maneuver comparison
+   - Receive anomaly detection report
+   - Drill down into specific discrepancies
+
+3. **Processing Flow**
+   - Request signal filtering or transformation
+   - View original vs. processed signal
+   - Save or export processed results
+   - Apply similar processing to other signals
+
+### UI/UX Considerations
+- Split-screen layout with chat interface and visualization area
+- File management sidebar for uploaded data
+- Interactive plot area with support for user selections
+- Context-aware suggestions based on uploaded data
+- Persistent session state for continuing analysis
+- Responsive design that prioritizes visualization space
+- Clear indication of processing status for long operations
+
+## Technical Architecture
+
+### System Components
+1. **Core Service Layer**
+   - LangGraph agent framework with custom automotive states
+   - FastAPI service for RESTful endpoints
+   - Streamlit UI application
+   - State management system for sessions
+
+2. **Data Processing Layer**
+   - MDF parser using asammdf
+   - Signal extraction and normalization
+   - Time synchronization engine
+   - Filtering and transformation pipeline
+
+3. **Storage Layer**
+   - File management system
+   - Metadata database
+   - Efficient dataframe caching
+   - Parquet conversion for optimized storage
+
+4. **Visualization Layer**
+   - Plotly chart generation
+   - Interactive plot components
+   - Export capabilities
+
+5. **RAG System**
+   - Vector database for technical documentation
+   - Semantic search capabilities
+   - Citation tracking
+
+### Data Models
+1. **File Metadata Model**
+   - Basic file information (name, type, size)
+   - Time range and sampling information
+   - Channel inventory
+   - Processing history
+
+2. **Signal Metadata Model**
+   - Signal name and aliases
+   - Units and conversion factors
+   - Min/max values
+   - Description and typical usage
+   - Related signals
+
+3. **Session State Model**
+   - Uploaded files inventory
+   - Active file reference
+   - Generated plots
+   - Conversation history
+   - Signal selections
+
+4. **Plot Configuration Model**
+   - Plot type
+   - Signal references
+   - Time range
+   - Display options
+   - Derived properties
+
+### APIs and Integrations
+1. **Core API Endpoints**
+   - File upload/management endpoints
+   - Agent interaction endpoints
+   - Plot generation endpoints
+   - Session management endpoints
+
+2. **Internal Services**
+   - Signal processing service
+   - File parsing service
+   - Plot generation service
+   - RAG query service
+
+3. **Integration Points**
+   - Optional integration with external storage (S3, etc.)
+   - Export to common formats (CSV, XLSX, PNG)
+   - LangSmith for agent tracing
+   - Documentation system integration
+
+### Infrastructure Requirements
+1. **Compute Requirements**
+   - At least 16GB RAM for handling large files
+   - 4+ CPU cores for parallel processing
+   - GPU acceleration optional for local LLM deployment
+
+2. **Storage Requirements**
+   - SSD storage for fast file operations
+   - Minimum 100GB for application and file storage
+   - Backup system for user data
+
+3. **External Services**
+   - LLM API access (OpenAI, Anthropic, etc.)
+   - Vector database for RAG (if not local)
+
+## Development Roadmap
+
+### Phase 1: Foundation (MVP)
+1. **Core Infrastructure**
+   - Set up agent-service-toolkit fork
+   - Configure dependency management
+   - Implement basic file storage system
+   - Create initial data models
+
+2. **File Processing**
+   - Implement MDF file parser
+   - Create signal extraction system
+   - Develop basic metadata extraction
+   - Build file management API
+
+3. **Basic Agent**
+   - Create automotive agent with basic state
+   - Implement file-related tools
+   - Add simple plotting capabilities
+   - Develop signal query functionality
+
+4. **UI Fundamentals**
+   - Implement file upload in Streamlit
+   - Create basic chat interface
+   - Add simple plot display
+   - Develop session management
+
+### Phase 2: Core Analysis Capabilities
+1. **Enhanced Signal Processing**
+   - Implement signal filtering capabilities
+   - Add transformation functions
+   - Create derived signal system
+   - Develop unit conversion
+
+2. **Advanced Visualization**
+   - Add multiple plot types (XY, histogram, FFT)
+   - Implement interactive Plotly integration
+   - Create overlay capabilities
+   - Add annotation features
+
+3. **Multi-File Support**
+   - Develop time synchronization
+   - Implement file comparison
+   - Create aligned visualization
+   - Add multi-file query support
+
+4. **State Management**
+   - Enhance session persistence
+   - Implement signal selection memory
+   - Add plot history tracking
+   - Develop complex query parsing
+
+### Phase 3: Intelligence Layer
+1. **Signal Intelligence**
+   - Implement automatic signal mapping
+   - Create signal relationship model
+   - Develop automotive terminology recognition
+   - Add smart signal suggestions
+
+2. **Maneuver Detection**
+   - Create maneuver identification algorithms
+   - Implement automatic segmentation
+   - Develop comparison metrics
+   - Add anomaly detection
+
+3. **RAG Capabilities**
+   - Set up documentation vector database
+   - Implement retrieval system
+   - Create citation mechanism
+   - Develop knowledge integration with agent
+
+4. **Advanced UI**
+   - Add interactive signal selection from plots
+   - Implement context-aware suggestions
+   - Create export capabilities
+   - Develop comprehensive session management
+
+### Phase 4: Optimization & Polish
+1. **Performance Optimization**
+   - Implement efficient large file handling
+   - Add lazy loading for signals
+   - Optimize plot generation
+   - Enhance caching system
+
+2. **UI Refinement**
+   - Improve responsive design
+   - Enhance plot interactivity
+   - Add keyboard shortcuts
+   - Implement dark/light mode
+
+3. **Collaboration Features**
+   - Add shareable sessions
+   - Implement export of full analysis
+   - Create report generation
+   - Add annotation sharing
+
+4. **Enterprise Features**
+   - Implement user authentication
+   - Add role-based permissions
+   - Create team sharing capabilities
+   - Develop audit logging
+
+## Logical Dependency Chain
+
+1. **Foundation First**
+   - MDF parsing → Signal extraction → Basic visualization
+   - Agent service setup → Basic tools → Simple queries
+   - File storage → Metadata extraction → Signal indexing
+
+2. **User-Facing Milestones**
+   - File upload UI → Signal browsing → Basic querying
+   - Simple plot display → Interactive plots → Advanced visualization
+   - Basic chat → Context-aware chat → Intelligent suggestions
+
+3. **Capability Building Blocks**
+   - Single file handling → Multiple file handling → Time synchronization
+   - Simple signal operations → Filtering & transformations → Derived signals
+   - Basic plots → Interactive plots → Comparative visualization
+   - Plain queries → Domain-specific parsing → Intent recognition
+
+4. **Intelligence Layers**
+   - Signal name matching → Terminology understanding → Expert knowledge
+   - Basic maneuver extraction → Automatic detection → Anomaly identification
+   - Simple RAG → Document integration → Contextual knowledge
+
+## Risks and Mitigations
+
+### Technical Challenges
+1. **Large File Handling**
+   - **Risk**: Performance issues with gigabyte-sized MDF files
+   - **Mitigation**: Implement streaming parsers, lazy loading, and efficient Parquet conversion
+
+2. **Signal Name Diversity**
+   - **Risk**: Inconsistent signal naming across different files and OEMs
+   - **Mitigation**: Build robust alias system and fuzzy matching with manufacturer-specific mappings
+
+3. **Dependency Conflicts**
+   - **Risk**: Version conflicts between agent-service-toolkit and automotive libraries
+   - **Mitigation**: Use virtual environments, containerization, and careful dependency pinning
+
+4. **Time Synchronization Accuracy**
+   - **Risk**: Imprecise alignment of signals from different recordings
+   - **Mitigation**: Implement multiple synchronization algorithms and validation metrics
+
+### MVP Scoping
+1. **Feature Creep**
+   - **Risk**: Adding too many capabilities delaying usable product
+   - **Mitigation**: Focus on core file parsing and basic plotting for initial release
+
+2. **Complexity Balance**
+   - **Risk**: Implementing either too simple or overly complex solutions
+   - **Mitigation**: Build modular architecture that allows progressive enhancement
+
+3. **Agent Understanding**
+   - **Risk**: LLM agent struggles with automotive domain
+   - **Mitigation**: Create specialized tools that handle complexity and provide structured outputs
+
+### Resource Constraints
+1. **Computational Resources**
+   - **Risk**: Processing large files requires significant memory
+   - **Mitigation**: Implement chunked processing and memory-efficient algorithms
+
+2. **LLM API Costs**
+   - **Risk**: Frequent LLM calls become expensive
+   - **Mitigation**: Add caching layer and optimize prompt engineering
+
+3. **Domain Expertise**
+   - **Risk**: Building effective system requires automotive expertise
+   - **Mitigation**: Collaborate with domain experts and build knowledge into tools
+
+## Appendix
+
+### Technical Specifications
+1. **File Format Support**
+   - MDF 3.x and 4.x (ASAM standard)
+   - MAT files (MATLAB format)
+   - Support for common automotive data layouts
+
+2. **Signal Processing Capabilities**
+   - Butterworth filters (low-pass, high-pass, band-pass)
+   - Moving averages and other smoothing
+   - Resampling and interpolation
+   - Frequency domain transformation
+
+3. **Visualization Types**
+   - Time series plots
+   - XY plots (scatter and line)
+   - Histograms and distribution plots
+   - FFT and spectral plots
+   - Heatmaps for multi-signal comparison
+
+4. **Maneuver Types**
+   - Acceleration tests
+   - Braking events
+   - Steady-state cornering
+   - Lane changes
+   - Specific drive cycles
+
+### Research Findings
+1. **Common Pain Points**
+   - Engineers spend 40%+ time on data wrangling
+   - Signal naming inconsistency causes significant friction
+   - Comparative analysis requires custom scripts for each project
+   - Knowledge about signal meaning is often tribal/undocumented
+
+2. **User Preferences**
+   - Preference for interactive visualizations over static reports
+   - Strong desire for natural language interface
+   - Need for session persistence and reproducibility
+   - Importance of exporting processed results
+
+3. **Performance Benchmarks**
+   - Typical automotive MDF files: 100MB to 10GB
+   - Common signal count: 100-5000 per file
+   - Typical sampling rates: 10Hz to 1000Hz
+   - Expected processing times for initial parsing: <60s for 1GB file

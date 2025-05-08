@@ -1,0 +1,19 @@
+---
+description: Comprehensive reference for Taskmaster MCP tools and CLI commands.
+globs: **/*
+alwaysApply: true
+---
+# Current dev environment
+
+This document provides a description of the current dev environment
+
+**Note:** For best developement of the app, use the docs as refernce that are working for the installed versions of dependencies 
+
+**Important:** We are working on a Windows PC with windows command prompt as a default terminal. 
+
+---
+
+## Terminal usage
+-Always check which directory the terminal is currently located at.
+-Use windows command prompt specific commands to create new directories or remove or change anyfiles.
+-If, not sure, ask me to do it. 
