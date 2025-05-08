@@ -204,3 +204,4 @@ tasks/
 !tests/data/samples/*.dbc
 # Temporary test outputs
 temp_outputs/ 
+.cursor/mcp.json
