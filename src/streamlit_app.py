@@ -3,14 +3,17 @@ import os
 import urllib.parse
 import uuid
 from collections.abc import AsyncGenerator
+from datetime import datetime
 
 import streamlit as st
 from dotenv import load_dotenv
 from pydantic import ValidationError
+import pandas as pd
 
-from client import AgentClient, AgentClientError
+from client import AgentClient, AgentClientError, FileClient, FileClientError
 from schema import ChatHistory, ChatMessage
 from schema.task_data import TaskData, TaskDataStatus
+from schema.automotive.models import MeasurementFile
 
 # A Streamlit app for interacting with the langgraph agent via a simple chat interface.
 # The app has three main functions which are all run async:
@@ -23,8 +26,8 @@ from schema.task_data import TaskData, TaskDataStatus
 # The app heavily uses AgentClient to interact with the agent's FastAPI endpoints.
 
 
-APP_TITLE = "Agent Service Toolkit"
-APP_ICON = "🧰"
+APP_TITLE = "Automotive Data Copilot"
+APP_ICON = "🚗"
 
 
 async def main() -> None:
@@ -32,6 +35,7 @@ async def main() -> None:
         page_title=APP_TITLE,
         page_icon=APP_ICON,
         menu_items={},
+        layout="wide",
     )
 
     # Hide the streamlit upper-right chrome
@@ -51,22 +55,26 @@ async def main() -> None:
         await asyncio.sleep(0.1)
         st.rerun()
 
+    # Initialize clients
     if "agent_client" not in st.session_state:
         load_dotenv()
         agent_url = os.getenv("AGENT_URL")
         if not agent_url:
-            host = os.getenv("HOST", "0.0.0.0")
+            host = os.getenv("HOST", "127.0.0.1")
             port = os.getenv("PORT", 8080)
             agent_url = f"http://{host}:{port}"
         try:
             with st.spinner("Connecting to agent service..."):
                 st.session_state.agent_client = AgentClient(base_url=agent_url)
-        except AgentClientError as e:
-            st.error(f"Error connecting to agent service at {agent_url}: {e}")
+                st.session_state.file_client = FileClient(base_url=agent_url)
+        except (AgentClientError, FileClientError) as e:
+            st.error(f"Error connecting to service at {agent_url}: {e}")
             st.markdown("The service might be booting up. Try again in a few seconds.")
             st.stop()
     agent_client: AgentClient = st.session_state.agent_client
+    file_client: FileClient = st.session_state.file_client
 
+    # Initialize session state
     if "thread_id" not in st.session_state:
         thread_id = st.query_params.get("thread_id")
         if not thread_id:
@@ -80,19 +88,137 @@ async def main() -> None:
                 messages = []
         st.session_state.messages = messages
         st.session_state.thread_id = thread_id
+    
+    # Initialize file selection state
+    if "selected_file_id" not in st.session_state:
+        st.session_state.selected_file_id = None
+    
+    if "files" not in st.session_state:
+        try:
+            st.session_state.files = await file_client.list_files()
+            st.toast(f"Loaded {len(st.session_state.files)} files on startup")
+        except FileClientError:
+            st.session_state.files = []
+            st.toast("No files found or error loading files")
+    
+    # Initialize file metadata state
+    if "selected_file_metadata" not in st.session_state:
+        st.session_state.selected_file_metadata = None
+    
+    # If a file is selected, fetch its metadata
+    if st.session_state.selected_file_id and (
+        st.session_state.selected_file_metadata is None or 
+        st.session_state.selected_file_metadata.file_id != st.session_state.selected_file_id
+    ):
+        try:
+            with st.spinner("Loading file metadata..."):
+                # Debug info
+                st.toast(f"Fetching metadata for file ID: {st.session_state.selected_file_id}")
+                metadata = await file_client.get_file_metadata(st.session_state.selected_file_id)
+                st.session_state.selected_file_metadata = metadata
+                st.toast("Metadata loaded successfully!")
+        except FileClientError as e:
+            st.error(f"Error loading file metadata: {e}")
+            st.session_state.selected_file_metadata = None
 
     # Config options
     with st.sidebar:
         st.header(f"{APP_ICON} {APP_TITLE}")
 
         ""
-        "Full toolkit for running an AI agent service built with LangGraph, FastAPI and Streamlit"
+        "Interact with automotive measurement data using natural language"
         ""
 
         if st.button(":material/chat: New Chat", use_container_width=True):
             st.session_state.messages = []
             st.session_state.thread_id = str(uuid.uuid4())
             st.rerun()
+        
+        # File upload section
+        st.subheader("📁 Data Files")
+        
+        with st.form("file_upload_form", clear_on_submit=True):
+            uploaded_file = st.file_uploader(
+                "Upload MDF File",
+                type=["mf4", "mdf", "dat"], 
+                help="Upload automotive measurement data files (MDF3 or MDF4 format)"
+            )
+            file_description = st.text_area("Description (optional)", height=68)
+            submit_button = st.form_submit_button("Upload")
+            
+            if submit_button and uploaded_file is not None:
+                try:
+                    with st.spinner("Uploading and processing file..."):
+                        file_content = uploaded_file.getvalue()
+                        filename = uploaded_file.name
+                        response = await file_client.upload_file(
+                            file_content=file_content,
+                            filename=filename,
+                            description=file_description if file_description else None
+                        )
+                        if response.status == "ok":
+                            st.success(f"Successfully uploaded: {filename}")
+                            # Refresh the file list
+                            st.session_state.files = await file_client.list_files()
+                            # Auto-select the newly uploaded file
+                            st.session_state.selected_file_id = response.file_id
+                            # Force metadata refresh
+                            st.session_state.selected_file_metadata = None
+                            st.toast(f"File list updated, found {len(st.session_state.files)} files")
+                        else:
+                            st.warning(f"Upload issue: {response.message}")
+                except FileClientError as e:
+                    st.error(f"Error uploading file: {e}")
+        
+        # File list and selection
+        if len(st.session_state.files) > 0:
+            st.write("Available files:")
+            
+            for file in st.session_state.files:
+                col1, col2 = st.columns([4, 1])
+                is_selected = st.session_state.selected_file_id == file.file_id
+                
+                with col1:
+                    if st.button(
+                        f"{'📌 ' if is_selected else '📄 '}{file.filename}",
+                        key=f"file_{file.file_id}",
+                        help=f"{file.description or 'No description'}\nChannels: {file.channel_count}",
+                        use_container_width=True,
+                    ):
+                        st.session_state.selected_file_id = file.file_id
+                        # Force metadata refresh
+                        st.session_state.selected_file_metadata = None
+                        st.toast(f"Selected file: {file.filename}")
+                        st.rerun()
+                
+                with col2:
+                    if st.button(
+                        "🗑️",
+                        key=f"delete_{file.file_id}",
+                        help=f"Delete {file.filename}",
+                    ):
+                        try:
+                            with st.spinner("Deleting file..."):
+                                await file_client.delete_file(file.file_id)
+                                st.session_state.files = await file_client.list_files()
+                                if st.session_state.selected_file_id == file.file_id:
+                                    st.session_state.selected_file_id = None
+                                st.success(f"Deleted {file.filename}")
+                                st.rerun()
+                        except FileClientError as e:
+                            st.error(f"Error deleting file: {e}")
+            
+            # Refresh files button
+            if st.button("🔄 Refresh Files"):
+                try:
+                    with st.spinner("Refreshing files..."):
+                        st.session_state.files = await file_client.list_files()
+                        st.success("Files refreshed")
+                        st.rerun()
+                except FileClientError as e:
+                    st.error(f"Error refreshing files: {e}")
+        else:
+            st.info("No files uploaded yet. Upload an MDF file to get started.")
 
         with st.popover(":material/settings: Settings", use_container_width=True):
             model_idx = agent_client.info.models.index(agent_client.info.default_model)
@@ -141,25 +267,88 @@ async def main() -> None:
             share_chat_dialog()
 
         "[View the source code](https://github.com/JoshuaC215/agent-service-toolkit)"
-        st.caption(
-            "Made with :material/favorite: by [Joshua](https://www.linkedin.com/in/joshua-k-carroll/) in Oakland"
-        )
+        st.caption("Based on agent-service-toolkit by Joshua")
 
+    # Main chat area
     # Draw existing messages
     messages: list[ChatMessage] = st.session_state.messages
 
+    # Display file metadata if a file is selected
+    if st.session_state.selected_file_metadata:
+        metadata = st.session_state.selected_file_metadata
+        with st.expander(f"📊 File Metadata: {metadata.filename}", expanded=True):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("File Information")
+                st.write(f"**File ID:** {metadata.file_id}")
+                st.write(f"**Format:** {metadata.file_type}")
+                st.write(f"**Size:** {metadata.file_size_bytes / (1024*1024):.2f} MB")
+                st.write(f"**Description:** {metadata.description or 'N/A'}")
+            
+            with col2:
+                st.subheader("Time Information")
+                # Format the start and end times
+                start_time = metadata.start_time
+                end_time = metadata.end_time
+                if isinstance(start_time, datetime):
+                    start_time_str = start_time.strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    start_time_str = f"{start_time:.2f} s"
+                
+                if isinstance(end_time, datetime):
+                    end_time_str = end_time.strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    end_time_str = f"{end_time:.2f} s"
+                
+                st.write(f"**Start Time:** {start_time_str}")
+                st.write(f"**End Time:** {end_time_str}")
+                st.write(f"**Duration:** {metadata.duration:.2f} s")
+                st.write(f"**Sample Count:** {metadata.sample_count:,}")
+            
+            # Display signal/channel information
+            st.subheader(f"Channels ({len(metadata.channels)})")
+            
+            # Create a DataFrame to display channels in tabular form
+            if metadata.channels:
+                channels_data = []
+                for channel_id, channel in metadata.channels.items():
+                    channels_data.append({
+                        "Name": channel.name,
+                        "Unit": channel.unit or "N/A",
+                        "Min": channel.min_value if channel.min_value is not None else "N/A",
+                        "Max": channel.max_value if channel.max_value is not None else "N/A",
+                        "Sampling Rate": f"{channel.sampling_rate:.2f} Hz" if channel.sampling_rate else "N/A",
+                        "Description": channel.description or "N/A",
+                        "ECU": channel.ecu or "N/A"
+                    })
+                
+                # Create a DataFrame and display it
+                channels_df = pd.DataFrame(channels_data)
+                st.dataframe(channels_df, use_container_width=True)
+                
+                # Option to filter signals
+                signal_filter = st.text_input("Filter signals", placeholder="Enter search term...")
+                if signal_filter:
+                    filtered_channels = [
+                        channel for channel in channels_data 
+                        if signal_filter.lower() in channel["Name"].lower() or
+                           signal_filter.lower() in (channel["Description"] or "").lower()
+                    ]
+                    if filtered_channels:
+                        st.dataframe(pd.DataFrame(filtered_channels), use_container_width=True)
+                    else:
+                        st.info("No channels match your filter criteria.")
+
     if len(messages) == 0:
-        match agent_client.agent:
-            case "chatbot":
-                WELCOME = "Hello! I'm a simple chatbot. Ask me anything!"
-            case "interrupt-agent":
-                WELCOME = "Hello! I'm an interrupt agent. Tell me your birthday and I will predict your personality!"
-            case "research-assistant":
-                WELCOME = "Hello! I'm an AI-powered research assistant with web search and a calculator. Ask me anything!"
-            case _:
-                WELCOME = "Hello! I'm an AI agent. Ask me anything!"
+        agent_message = "Hello! I'm your automotive data copilot. Upload MDF files and ask me questions about the data."
+        if st.session_state.selected_file_id:
+            file_metadata = next((f for f in st.session_state.files if f.file_id == st.session_state.selected_file_id), None)
+            if file_metadata:
+                agent_message += f"\n\nI see you've selected the file '{file_metadata.filename}'. What would you like to know about this data?"
+        
         with st.chat_message("ai"):
-            st.write(WELCOME)
+            st.write(agent_message)
 
     # draw_messages() expects an async iterator over messages
     async def amessage_iter() -> AsyncGenerator[ChatMessage, None]:
@@ -173,11 +362,24 @@ async def main() -> None:
         messages.append(ChatMessage(type="human", content=user_input))
         st.chat_message("human").write(user_input)
         try:
+            # Add context about selected file to the message
+            agent_config = {}
+            if st.session_state.selected_file_id:
+                file_metadata = next((f for f in st.session_state.files if f.file_id == st.session_state.selected_file_id), None)
+                if file_metadata:
+                    agent_config["current_file"] = {
+                        "file_id": file_metadata.file_id,
+                        "filename": file_metadata.filename,
+                        "channel_count": file_metadata.channel_count,
+                        "duration": file_metadata.duration,
+                    }
+            
             if use_streaming:
                 stream = agent_client.astream(
                     message=user_input,
                     model=model,
                     thread_id=st.session_state.thread_id,
+                    agent_config=agent_config,
                 )
                 await draw_messages(stream, is_new=True)
             else:
@@ -185,6 +387,7 @@ async def main() -> None:
                     message=user_input,
                     model=model,
                     thread_id=st.session_state.thread_id,
+                    agent_config=agent_config,
                 )
                 messages.append(response)
                 st.chat_message("ai").write(response.content)

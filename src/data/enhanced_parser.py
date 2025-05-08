@@ -837,10 +837,38 @@ def parse_mdf(
         logger.error("asammdf package is not installed. Please install it using: pip install asammdf")
         raise ImportError("asammdf is required for parsing MDF files")
     
-    # Ensure file_path is a Path object
-    file_path = Path(file_path) if not isinstance(file_path, Path) else file_path
+    # Ensure file_path is a Path object, converting from string if needed
+    if isinstance(file_path, str):
+        file_path = Path(file_path)
+    
     if not file_path.exists():
+        logger.error(f"MDF file not found: {file_path}")
         raise FileNotFoundError(f"MDF file not found: {file_path}")
+        
+    # Check if file has content
+    file_size = file_path.stat().st_size
+    if file_size == 0:
+        logger.error(f"MDF file is empty (0 bytes): {file_path}")
+        raise ValueError(f"MDF file is empty (0 bytes): {file_path}")
+        
+    # Basic validation of file format - check first few bytes
+    try:
+        with open(file_path, "rb") as f:
+            header = f.read(8)  # Read first 8 bytes
+            # MDF files should start with 'MDF     ' for older versions 
+            # or specific patterns for MDF4
+            # 'UnFinMF' is also valid for unfinished MDF files
+            valid_header = b'MDF' in header or b'##' in header or b'UnFinMF' in header
+            if not header or not valid_header:
+                logger.error(f"File doesn't appear to be a valid MDF file (invalid header): {file_path}")
+                logger.error(f"File header: {header}")
+                raise ValueError(f"File doesn't appear to be a valid MDF file (invalid header): {file_path}. Header: {header}")
+            
+            if b'UnFinMF' in header:
+                logger.warning(f"File appears to be an unfinished MDF file: {file_path}")
+    except Exception as e:
+        logger.error(f"Error reading file header: {e}")
+        raise ValueError(f"Failed to validate MDF file header: {e}")
     
     # Process time range if provided
     time_from = None
@@ -848,8 +876,27 @@ def parse_mdf(
     if time_range:
         time_from, time_to = time_range
     
-    # Load the MDF file
-    mdf = MDF(file_path)
+    # Load the MDF file with proper error handling
+    try:
+        logger.info(f"Loading MDF file: {file_path} (size: {file_size} bytes)")
+        mdf = MDF(str(file_path))  # Convert Path to string for compatibility
+        logger.info(f"MDF file loaded successfully, version: {mdf.version}, channels: {len(mdf.channels_db)}")
+    except Exception as e:
+        logger.error(f"Failed to load MDF file: {e}")
+        # Create a basic metadata dict with the error
+        basic_metadata = {
+            "file_id": str(uuid.uuid4()),
+            "filename": file_path.name,
+            "file_path": str(file_path),
+            "file_size_bytes": file_size,
+            "error": str(e)
+        }
+        if return_format == 'dataframe':
+            return pd.DataFrame(), basic_metadata
+        elif return_format == 'signals':
+            return {}, basic_metadata
+        else:
+            return pd.DataFrame(), {}, basic_metadata
     
     # Extract file metadata
     metadata = extract_mdf_metadata(mdf, file_path)
@@ -889,16 +936,32 @@ def parse_mdf(
     channel_metadata = extract_channel_metadata(all_signals)
     
     # Update metadata with channel info and redundancy info
+    if all_signals:
+        # Get timestamps from signals if available to calculate time range
+        timestamps = [s.timestamps for s in all_signals.values() if len(s.timestamps) > 0]
+        
+        # Set time range information if timestamps are available
+        time_range_info = {}
+        if timestamps:
+            starts = [ts[0] for ts in timestamps if len(ts) > 0]
+            ends = [ts[-1] for ts in timestamps if len(ts) > 0]
+            
+            if starts and ends:
+                time_range_info = {
+                    "start": float(min(starts)),
+                    "end": float(max(ends))
+                }
+                # Add convenience fields for routes.py
+                metadata["start_time"] = time_range_info["start"]
+                metadata["end_time"] = time_range_info["end"]
+    
+    # Update main metadata dict
     metadata.update({
         "channels": channel_metadata,
         "redundant_signals": redundant_signals,
         "signal_count": len(all_signals),
-        "time_range": {
-            "start": float(min(s.timestamps[0] for s in all_signals.values() if len(s.timestamps) > 0))
-            if all_signals else None,
-            "end": float(max(s.timestamps[-1] for s in all_signals.values() if len(s.timestamps) > 0))
-            if all_signals else None
-        }
+        "time_range": time_range_info if 'time_range_info' in locals() else None,
+        "channels_db": mdf.channels_db  # Add channels_db for routes.py compatibility
     })
     
     # Apply resampling if requested

@@ -205,3 +205,6 @@ tasks/
 # Temporary test outputs
 temp_outputs/ 
 .cursor/mcp.json
+file_metadata/
+file_storage/
+test_files/

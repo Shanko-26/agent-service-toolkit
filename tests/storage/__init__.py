@@ -1,1 +1,3 @@
-  
+"""
+Storage-related test modules.
+"""  

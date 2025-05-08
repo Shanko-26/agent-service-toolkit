@@ -34,23 +34,13 @@ from service.utils import (
     convert_message_content_to_string,
     langchain_to_chat_message,
     remove_tool_calls,
+    verify_bearer,
 )
+# Import our file management router
+from storage.routes import router as files_router
 
 warnings.filterwarnings("ignore", category=LangChainBetaWarning)
 logger = logging.getLogger(__name__)
-
-
-def verify_bearer(
-    http_auth: Annotated[
-        HTTPAuthorizationCredentials | None,
-        Depends(HTTPBearer(description="Please provide AUTH_SECRET api key.", auto_error=False)),
-    ],
-) -> None:
-    if not settings.AUTH_SECRET:
-        return
-    auth_secret = settings.AUTH_SECRET.get_secret_value()
-    if not http_auth or http_auth.credentials != auth_secret:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
 
 
 @asynccontextmanager
@@ -72,11 +62,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(lifespan=lifespan)
-router = APIRouter(dependencies=[Depends(verify_bearer)])
+router = APIRouter(prefix="", dependencies=[Depends(verify_bearer)])
+
+# Include our file management router
+app.include_router(files_router)
+# Include the main router
+app.include_router(router)
 
 
-@router.get("/info")
+@app.get("/info")
 async def info() -> ServiceMetadata:
+    """Get information about the service such as available agents and models."""
     models = list(settings.AVAILABLE_MODELS)
     models.sort()
     return ServiceMetadata(
@@ -370,6 +366,3 @@ def history(input: ChatHistoryInput) -> ChatHistory:
 async def health_check():
     """Health check endpoint."""
     return {"status": "ok"}
-
-
-app.include_router(router)

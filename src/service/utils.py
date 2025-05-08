@@ -10,6 +10,26 @@ from langchain_core.messages import (
 
 from schema import ChatMessage
 
+from typing import Annotated, Any
+
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+from core import settings
+
+
+def verify_bearer(
+    http_auth: Annotated[
+        HTTPAuthorizationCredentials | None,
+        Depends(HTTPBearer(description="Please provide AUTH_SECRET api key.", auto_error=False)),
+    ],
+) -> None:
+    if not settings.AUTH_SECRET:
+        return
+    auth_secret = settings.AUTH_SECRET.get_secret_value()
+    if not http_auth or http_auth.credentials != auth_secret:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+
 
 def convert_message_content_to_string(content: str | list[str | dict]) -> str:
     if isinstance(content, str):
