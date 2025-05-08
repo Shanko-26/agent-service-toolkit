@@ -24,6 +24,9 @@ services:
         - path: src/memory/
           action: sync+restart
           target: /app/memory/
+        - path: src/data/
+          action: sync+restart
+          target: /app/data/
 
   streamlit_app:
     build:

@@ -222,3 +222,125 @@ Contributions are welcome! Please feel free to submit a Pull Request. Currently 
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+# Automotive Data Parser
+
+An advanced parser for automotive measurement data files (MDF format) with support for ECU redundancy detection and signal disambiguation.
+
+## Features
+
+- Parse MDF3 and MDF4 automotive measurement files
+- Automatic ECU detection from signal names
+- Signal disambiguation for redundant ECUs
+- CAN signal extraction via DBC files
+- Structured and multi-dimensional array handling
+- Advanced signal resampling and interpolation
+- Rich metadata extraction
+- Time range filtering
+- Multiple return formats (DataFrame, Signal objects)
+
+## Installation
+
+```bash
+pip install -r automotive_requirements.txt
+```
+
+## Basic Usage
+
+```python
+from src.data.enhanced_parser import parse_mdf
+
+# Basic usage
+df, metadata = parse_mdf('path/to/file.mdf')
+
+# With time range filtering
+df, metadata = parse_mdf('path/to/file.mdf', time_range=(10.5, 60.0))
+
+# With signal selection
+df, metadata = parse_mdf('path/to/file.mdf', channels=['Engine_Speed', 'Vehicle_Speed'])
+
+# With resampling
+df, metadata = parse_mdf('path/to/file.mdf', resample=100)  # 100 Hz
+
+# With CAN database
+df, metadata = parse_mdf('path/to/file.mdf', dbc_files=['vehicle.dbc'])
+
+# Return as Signal objects
+signals, metadata = parse_mdf('path/to/file.mdf', return_format='signals')
+
+# Get both DataFrame and Signal objects
+df, signals, metadata = parse_mdf('path/to/file.mdf', return_format='both')
+
+# With time as index
+df, metadata = parse_mdf('path/to/file.mdf', time_as_index=True)
+```
+
+## Key Features
+
+### ECU Detection and Disambiguation
+
+The parser automatically detects ECUs from signal names using common patterns:
+- `ECU_SignalName`
+- `SignalName_ECU`
+- `ECU.SignalName`
+- `Prefix_ECU_SignalName`
+
+Signals are qualified with ECU names to avoid conflicts in redundant systems.
+
+### Handling of Structured Arrays
+
+Complex structured data (like CAN frames) is automatically processed into individual signals.
+
+### Robust Data Alignment
+
+Signals with inconsistent lengths or different sample rates are properly handled, with detailed diagnostic logs.
+
+### Time Range Filtering
+
+Efficiently filter data to specific time ranges without loading the entire dataset.
+
+### Resampling and Interpolation
+
+Resample signals to a consistent frequency for easier analysis, with support for different interpolation methods:
+- Linear
+- Previous (zero-order hold)
+- Next
+
+### Rich Metadata
+
+Comprehensive metadata is extracted from the files, including:
+- File information
+- Channel details
+- Redundant signal groups
+- Timestamp ranges
+- ECU information
+
+## Demo
+
+Run the demonstration script to see the parser in action:
+
+```bash
+python demo_parser.py
+```
+
+## Recent Enhancements (May 2025)
+
+1. **Complete Rewrite**: The enhanced parser has been completely rewritten to better leverage the powerful features of asammdf.
+
+2. **Improved Signal Handling**: Added robust handling of signals with different lengths and sample rates.
+
+3. **Better Multi-dimensional Array Support**: Improved handling of structured arrays and complex data types.
+
+4. **Enhanced Error Handling**: Comprehensive error handling with detailed logging.
+
+5. **Flexible Return Formats**: Support for returning data as DataFrames, Signal objects, or both.
+
+6. **Comprehensive Testing**: Enhanced test suite with coverage for all main functionality.
+
+7. **Thorough Documentation**: Improved documentation with usage examples.
+
+8. **Environment Compatibility**: Better handling of import paths in different Python environments.
+
+## License
+
+MIT

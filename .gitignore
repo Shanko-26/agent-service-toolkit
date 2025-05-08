@@ -170,3 +170,37 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 .idea/
+
+# Added by Claude Task Master
+# Logs
+logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dev-debug.log
+# Dependency directories
+node_modules/
+# Environment variables
+# Editor directories and files
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+# OS specific
+# Task files
+tasks.json
+tasks/
+
+# Automotive data files
+# Exclude all MDF files except the small samples in tests
+*.mdf
+*.mf4
+!tests/data/samples/*.mdf
+!tests/data/samples/*.mf4
+# DBC files (CAN database)
+*.dbc
+!tests/data/samples/*.dbc
+# Temporary test outputs
+temp_outputs/ 
