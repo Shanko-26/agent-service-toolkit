@@ -248,6 +248,10 @@ def render_plot(data: pd.DataFrame, config: Optional[PlotConfig] = None) -> None
         st.warning("No data available to plot")
         return
     
+    # Define grid visibility state in session if not exists
+    if "show_grid" not in st.session_state:
+        st.session_state.show_grid = True
+    
     # Plot mode selection
     st.subheader("Plot Configuration")
     plot_type = st.radio(
@@ -265,153 +269,158 @@ def render_plot(data: pd.DataFrame, config: Optional[PlotConfig] = None) -> None
     config["use_multi_axis"] = use_multi_axis
     config["use_subplots"] = use_subplots
     
-    # Get all available channels
-    all_channels = config.get("channels", [])
-    
-    # Configure multi-axis settings if selected - SIMPLIFIED VERSION
-    if use_multi_axis and all_channels:
-        # Initialize axes configuration if needed
-        if not config.get("y_axes") or len(config.get("y_axes", [])) == 0:
-            # Default: first channel on left axis
-            config["y_axes"] = [{
-                "title": "Primary Axis",
-                "unit": "Value",
-                "channels": all_channels[:1] if all_channels else [],
-                "position": "left"
-            }]
-            
-            # If we have more channels, create a right axis with the second channel
-            if len(all_channels) > 1:
-                config["y_axes"].append({
-                    "title": "Secondary Axis",
-                    "unit": "Value",
-                    "channels": all_channels[1:2],
-                    "position": "right"
-                })
-        
+    # Configure multi-axis settings if selected
+    if use_multi_axis and config.get("channels"):
         with st.expander("Multi-Axis Settings", expanded=True):
-            # Display existing axes for editing
+            # If y_axes not configured yet, initialize with all channels on left
+            if not config.get("y_axes"):
+                config["y_axes"] = [{
+                    "title": "Primary Axis",
+                    "unit": "Value",
+                    "channels": config.get("channels", []),
+                    "position": "left"
+                }]
+            
+            # UI to add a new axis
+            col1, col2, col3 = st.columns([2, 2, 1])
+            with col1:
+                new_axis_title = st.text_input("Axis Title", key="new_axis_title")
+            with col2:
+                new_axis_unit = st.text_input("Unit", key="new_axis_unit")
+            with col3:
+                new_axis_position = st.selectbox("Position", ["left", "right"], key="new_axis_position")
+            
+            # Get all channels not already assigned to an axis
+            all_channels = set(config.get("channels", []))
+            assigned_channels = set()
+            for axis in config.get("y_axes", []):
+                assigned_channels.update(axis.get("channels", []))
+            available_channels = list(all_channels - assigned_channels)
+            
+            # Allow selecting channels for the new axis
+            selected_channels = st.multiselect(
+                "Channels for new axis",
+                options=available_channels,
+                key="new_axis_channels"
+            )
+            
+            # Add button
+            if st.button("Add Axis"):
+                if selected_channels and new_axis_title:
+                    config.setdefault("y_axes", []).append({
+                        "title": new_axis_title,
+                        "unit": new_axis_unit,
+                        "channels": selected_channels,
+                        "position": new_axis_position
+                    })
+                    st.experimental_rerun()
+            
+            # Show existing axes for editing
             for i, axis in enumerate(config.get("y_axes", [])):
-                st.markdown(f"### Axis {i+1}")
-                col1, col2, col3 = st.columns([2, 1, 1])
+                st.markdown(f"**Axis {i+1}: {axis.get('title')}**")
+                col1, col2, col3 = st.columns([3, 1, 1])
                 
                 with col1:
-                    axis["title"] = st.text_input(
-                        "Title", 
-                        value=axis.get("title", f"Axis {i+1}"),
-                        key=f"axis_title_{i}"
-                    )
+                    st.write(f"Channels: {', '.join(axis.get('channels', []))}")
                 with col2:
-                    axis["unit"] = st.text_input(
-                        "Unit", 
-                        value=axis.get("unit", ""),
-                        key=f"axis_unit_{i}"
-                    )
+                    st.write(f"Unit: {axis.get('unit', '')}")
                 with col3:
-                    axis["position"] = st.selectbox(
-                        "Position", 
-                        options=["left", "right"],
-                        index=0 if axis.get("position") == "left" else 1,
-                        key=f"axis_position_{i}"
-                    )
+                    st.write(f"Position: {axis.get('position', 'left')}")
                 
-                # Simple channel selection
-                axis["channels"] = st.multiselect(
-                    "Channels",
-                    options=all_channels,
-                    default=axis.get("channels", []),
-                    key=f"axis_channels_{i}"
-                )
+                # Remove button
+                if len(config.get("y_axes", [])) > 1:  # Don't allow removing the last axis
+                    if st.button(f"Remove Axis {i+1}"):
+                        config["y_axes"].pop(i)
+                        st.experimental_rerun()
                 
-                # Add separator between axes
                 st.markdown("---")
-            
-            # Simple button to add a new axis
-            if st.button("+ Add Another Axis"):
-                # Find unused channels
-                used_channels = []
-                for axis in config.get("y_axes", []):
-                    used_channels.extend(axis.get("channels", []))
-                
-                unused_channels = [ch for ch in all_channels if ch not in used_channels]
-                
-                # Add a new axis with the first unused channel
-                config["y_axes"].append({
-                    "title": f"Axis {len(config.get('y_axes', [])) + 1}",
-                    "unit": "",
-                    "channels": unused_channels[:1] if unused_channels else [],
-                    "position": "left" if len(config.get("y_axes", [])) % 2 == 0 else "right"
-                })
     
-    # Configure subplot settings if selected - SIMPLIFIED VERSION
-    if use_subplots and all_channels:
+    # Configure subplot settings if selected
+    if use_subplots and config.get("channels"):
         with st.expander("Subplot Settings", expanded=True):
-            # Simplified rows/columns selection
-            n_subplots = min(len(all_channels), 4)  # Cap at 4 subplots
+            # Configure rows and columns
+            col1, col2 = st.columns(2)
+            with col1:
+                subplot_rows = st.number_input("Number of Rows", min_value=1, max_value=4, value=config.get("subplot_rows", 1), key="subplot_rows")
+            with col2:
+                subplot_cols = st.number_input("Number of Columns", min_value=1, max_value=3, value=config.get("subplot_cols", 1), key="subplot_cols")
             
-            if n_subplots <= 2:
-                # For 1-2 channels, use a single column layout
-                subplot_rows = n_subplots
-                subplot_cols = 1
-            else:
-                # For 3-4 channels, use a 2x2 grid
-                subplot_rows = 2
-                subplot_cols = 2
-            
+            # Update config
             config["subplot_rows"] = subplot_rows
             config["subplot_cols"] = subplot_cols
             
-            # Create or update subplots - one channel per subplot by default
-            config["subplots"] = []
-            idx = 0
-            
-            for r in range(1, subplot_rows + 1):
-                for c in range(1, subplot_cols + 1):
-                    if idx < len(all_channels):
-                        # Create a subplot with a single channel
-                        channel = all_channels[idx]
+            # Ensure subplot list is initialized
+            if not config.get("subplots"):
+                config["subplots"] = []
+                for r in range(1, subplot_rows + 1):
+                    for c in range(1, subplot_cols + 1):
+                        # Create a default subplot for each position
                         config["subplots"].append({
                             "row": r,
                             "col": c,
-                            "channels": [channel],
+                            "channels": [],
                             "axis_config": {
-                                "title": channel,  # Use channel name as default title
+                                "title": f"Subplot {r}.{c}",
                                 "unit": ""
                             }
                         })
-                        idx += 1
             
-            # Allow limited customization of each subplot
-            for i, subplot in enumerate(config.get("subplots", [])):
-                with st.expander(f"Subplot {i+1}: {subplot['axis_config'].get('title')}", expanded=i==0):
-                    # Unit only - title is derived from channel
-                    subplot["axis_config"]["unit"] = st.text_input(
-                        "Unit", 
-                        value=subplot["axis_config"].get("unit", ""),
-                        key=f"subplot_unit_{i}"
-                    )
+            # Create enough subplots for the grid
+            needed_subplots = subplot_rows * subplot_cols
+            current_subplots = len(config.get("subplots", []))
+            
+            if current_subplots < needed_subplots:
+                # Add more subplots
+                for i in range(current_subplots, needed_subplots):
+                    row = (i // subplot_cols) + 1
+                    col = (i % subplot_cols) + 1
+                    config["subplots"].append({
+                        "row": row,
+                        "col": col,
+                        "channels": [],
+                        "axis_config": {
+                            "title": f"Subplot {row}.{col}",
+                            "unit": ""
+                        }
+                    })
+            elif current_subplots > needed_subplots:
+                # Remove excess subplots
+                config["subplots"] = config["subplots"][:needed_subplots]
+            
+            # UI for configuring each subplot
+            st.markdown("### Configure Subplots")
+            
+            # Get all available channels
+            all_channels = config.get("channels", [])
+            
+            # Create tabs for each subplot
+            subplot_tabs = st.tabs([f"Subplot {s.get('row')}.{s.get('col')}" for s in config.get("subplots", [])])
+            
+            for i, (subplot, tab) in enumerate(zip(config.get("subplots", []), subplot_tabs)):
+                with tab:
+                    # Title and unit
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        subplot["axis_config"]["title"] = st.text_input(
+                            "Title", 
+                            value=subplot["axis_config"].get("title", f"Subplot {subplot.get('row')}.{subplot.get('col')}"),
+                            key=f"subplot_title_{i}"
+                        )
+                    with col2:
+                        subplot["axis_config"]["unit"] = st.text_input(
+                            "Unit", 
+                            value=subplot["axis_config"].get("unit", ""),
+                            key=f"subplot_unit_{i}"
+                        )
                     
-                    # Select which channel(s) for this subplot
+                    # Channel selection
                     subplot["channels"] = st.multiselect(
                         "Channels",
                         options=all_channels,
                         default=subplot.get("channels", []),
                         key=f"subplot_channels_{i}"
                     )
-                    
-                    # Update title based on channels
-                    if subplot["channels"]:
-                        if len(subplot["channels"]) == 1:
-                            # Single channel - use channel name as title
-                            subplot["axis_config"]["title"] = subplot["channels"][0]
-                        else:
-                            # Multiple channels - use generic title
-                            subplot["axis_config"]["title"] = f"Subplot {i+1}"
     
-    # Define grid visibility state in session if not exists
-    if "show_grid" not in st.session_state:
-        st.session_state.show_grid = True
-        
     # Create control button for grid visibility 
     show_grid = st.toggle("Show grid", value=st.session_state.show_grid)
     st.session_state.show_grid = show_grid
@@ -467,13 +476,15 @@ def render_plot(data: pd.DataFrame, config: Optional[PlotConfig] = None) -> None
             axis_config = subplot_config.get("axis_config", {})
             y_title = axis_config.get("title", "")
             y_unit = axis_config.get("unit", "")
-            
-            # Build y-axis title with unit if provided
-            y_axis_title = y_title
-            if y_unit:
+            if y_title and y_unit:
                 y_axis_title = f"{y_title} ({y_unit})"
+            elif y_title:
+                y_axis_title = y_title
+            elif y_unit:
+                y_axis_title = f"Value ({y_unit})"
+            else:
+                y_axis_title = "Value"
                 
-            # Ensure y-axis title is displayed
             fig.update_yaxes(
                 title_text=y_axis_title,
                 gridcolor=grid_color if show_grid else "rgba(0,0,0,0)",
@@ -533,11 +544,14 @@ def render_plot(data: pd.DataFrame, config: Optional[PlotConfig] = None) -> None
             # Configure the axis
             y_title = axis_config.get("title", "")
             y_unit = axis_config.get("unit", "")
-            
-            # Build y-axis title with unit if provided
-            y_axis_title = y_title
-            if y_unit:
+            if y_title and y_unit:
                 y_axis_title = f"{y_title} ({y_unit})"
+            elif y_title:
+                y_axis_title = y_title
+            elif y_unit:
+                y_axis_title = f"Value ({y_unit})"
+            else:
+                y_axis_title = "Value"
                 
             axis_layout = {
                 "title": y_axis_title,
@@ -748,14 +762,6 @@ def render_plot(data: pd.DataFrame, config: Optional[PlotConfig] = None) -> None
         rangeslider_visible=True,
         rangeslider_thickness=0.05,
     )
-    
-    # Display info about what's being plotted
-    if use_multi_axis:
-        st.caption(f"📊 Plotting {len(config.get('channels', []))} channels with multiple axes")
-    elif use_subplots:
-        st.caption(f"📊 Plotting {len(config.get('channels', []))} channels in {len(config.get('subplots', []))} subplots")
-    else:
-        st.caption(f"📊 Plotting {len(config.get('channels', []))} channels")
     
     # Render the plot
     st.plotly_chart(fig, use_container_width=True, config={
