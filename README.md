@@ -223,124 +223,90 @@ Contributions are welcome! Please feel free to submit a Pull Request. Currently 
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-# Automotive Data Parser
+# Automotive Data Copilot
 
-An advanced parser for automotive measurement data files (MDF format) with support for ECU redundancy detection and signal disambiguation.
+A modern Streamlit + FastAPI application for interactive automotive measurement data exploration, visualization, and LLM-powered chat copilot.
+
+---
 
 ## Features
 
-- Parse MDF3 and MDF4 automotive measurement files
-- Automatic ECU detection from signal names
-- Signal disambiguation for redundant ECUs
-- CAN signal extraction via DBC files
-- Structured and multi-dimensional array handling
-- Advanced signal resampling and interpolation
-- Rich metadata extraction
-- Time range filtering
-- Multiple return formats (DataFrame, Signal objects)
+- **File Upload**: Upload MDF3/MDF4 automotive log files (up to 200MB per file)
+- **Metadata Summary**: Clean, focused file info and channel overview
+- **Signal Browser**: 
+  - Search, filter by ECU, and multi-select signals for plotting
+  - Robust session state: tab and selection state persist across reruns
+  - Modern UX: no double-clicks, no tab jumps, always in sync
+- **Chat Copilot**: Ask questions about your data, get context-aware answers
+- **Backend API**: FastAPI endpoints for file management, metadata, and signal data
+- **Testing**: Pytest-based tests for backend endpoints and parser
+- **Dark mode UI**: Sleek, accessible, and responsive
 
-## Installation
+---
 
+## Quick Start
+
+### 1. Install dependencies
 ```bash
-pip install -r automotive_requirements.txt
+python -m venv .venv
+source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+pip install -r requirements.txt
 ```
 
-## Basic Usage
-
-```python
-from src.data.enhanced_parser import parse_mdf
-
-# Basic usage
-df, metadata = parse_mdf('path/to/file.mdf')
-
-# With time range filtering
-df, metadata = parse_mdf('path/to/file.mdf', time_range=(10.5, 60.0))
-
-# With signal selection
-df, metadata = parse_mdf('path/to/file.mdf', channels=['Engine_Speed', 'Vehicle_Speed'])
-
-# With resampling
-df, metadata = parse_mdf('path/to/file.mdf', resample=100)  # 100 Hz
-
-# With CAN database
-df, metadata = parse_mdf('path/to/file.mdf', dbc_files=['vehicle.dbc'])
-
-# Return as Signal objects
-signals, metadata = parse_mdf('path/to/file.mdf', return_format='signals')
-
-# Get both DataFrame and Signal objects
-df, signals, metadata = parse_mdf('path/to/file.mdf', return_format='both')
-
-# With time as index
-df, metadata = parse_mdf('path/to/file.mdf', time_as_index=True)
-```
-
-## Key Features
-
-### ECU Detection and Disambiguation
-
-The parser automatically detects ECUs from signal names using common patterns:
-- `ECU_SignalName`
-- `SignalName_ECU`
-- `ECU.SignalName`
-- `Prefix_ECU_SignalName`
-
-Signals are qualified with ECU names to avoid conflicts in redundant systems.
-
-### Handling of Structured Arrays
-
-Complex structured data (like CAN frames) is automatically processed into individual signals.
-
-### Robust Data Alignment
-
-Signals with inconsistent lengths or different sample rates are properly handled, with detailed diagnostic logs.
-
-### Time Range Filtering
-
-Efficiently filter data to specific time ranges without loading the entire dataset.
-
-### Resampling and Interpolation
-
-Resample signals to a consistent frequency for easier analysis, with support for different interpolation methods:
-- Linear
-- Previous (zero-order hold)
-- Next
-
-### Rich Metadata
-
-Comprehensive metadata is extracted from the files, including:
-- File information
-- Channel details
-- Redundant signal groups
-- Timestamp ranges
-- ECU information
-
-## Demo
-
-Run the demonstration script to see the parser in action:
-
+### 2. Run the backend (FastAPI)
 ```bash
-python demo_parser.py
+uvicorn src.service.service:app --reload
 ```
 
-## Recent Enhancements (May 2025)
+### 3. Run the frontend (Streamlit)
+```bash
+streamlit run src/streamlit_app.py
+```
 
-1. **Complete Rewrite**: The enhanced parser has been completely rewritten to better leverage the powerful features of asammdf.
+### 4. Open your browser
+Visit [http://localhost:8501](http://localhost:8501)
 
-2. **Improved Signal Handling**: Added robust handling of signals with different lengths and sample rates.
+---
 
-3. **Better Multi-dimensional Array Support**: Improved handling of structured arrays and complex data types.
+## Usage
+1. **Upload** an MDF file in the left sidebar
+2. **Browse metadata** in the center column (File Metadata tab)
+3. **Explore and select signals** in the Signal Browser tab (search, filter, multi-select)
+4. **Ask questions** in the chat panel (right column)
+5. **Plotting**: (coming soon) Use the "Plot Selected Signals" button to visualize selected signals
 
-4. **Enhanced Error Handling**: Comprehensive error handling with detailed logging.
+---
 
-5. **Flexible Return Formats**: Support for returning data as DataFrames, Signal objects, or both.
+## Screenshots
 
-6. **Comprehensive Testing**: Enhanced test suite with coverage for all main functionality.
+> _Paste screenshots of the UI here_
 
-7. **Thorough Documentation**: Improved documentation with usage examples.
+---
 
-8. **Environment Compatibility**: Better handling of import paths in different Python environments.
+## Testing
+
+Run all tests with:
+```bash
+pytest
+```
+
+- Includes backend API and parser tests
+- See `tests/data/test_data_endpoints.py` for a robust example
+
+---
+
+## Architecture
+- **Frontend**: Streamlit 1.41+, modern session state and custom tab handling
+- **Backend**: FastAPI, Pydantic, asammdf for MDF parsing
+- **State**: All tab and selection state is robustly managed in `st.session_state`
+- **No race conditions**: Custom tab selector ensures widgets never lose state
+
+---
+
+## Contributing
+Pull requests welcome! Please open an issue to discuss major changes first.
+
+---
 
 ## License
-
 MIT
