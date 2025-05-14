@@ -275,10 +275,16 @@ async def main() -> None:
     with center:
         st.header("Plot Area")
         st.info("Plots will appear here.")
-        # Display file metadata if a file is selected
         if st.session_state.selected_file_metadata:
             metadata = st.session_state.selected_file_metadata
-            with st.expander(f"📊 File Metadata: {metadata.filename}", expanded=True):
+            tab_names = ["📊 File Metadata", "📈 Signal Browser"]
+            # Persist selected tab in session state
+            if "selected_tab" not in st.session_state:
+                st.session_state.selected_tab = tab_names[0]
+            selected_tab = st.radio("Select view", tab_names, index=tab_names.index(st.session_state.selected_tab), key="tab_selector")
+            st.session_state.selected_tab = selected_tab
+            if selected_tab == "📊 File Metadata":
+                st.subheader(f"File: {metadata.filename}")
                 col1, col2 = st.columns(2)
                 with col1:
                     st.subheader("File Information")
@@ -302,9 +308,32 @@ async def main() -> None:
                     st.write(f"**End Time:** {end_time_str}")
                     st.write(f"**Duration:** {metadata.duration:.2f} s")
                     st.write(f"**Sample Count:** {metadata.sample_count:,}")
-                st.subheader(f"Channels ({len(metadata.channels)})")
+                st.subheader("Channel Overview")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Total Channels", len(metadata.channels) if metadata.channels else 0)
+                    if metadata.channels:
+                        ecu_counts = {}
+                        for channel_id, channel in metadata.channels.items():
+                            ecu = channel.ecu or "Unknown"
+                            ecu_counts[ecu] = ecu_counts.get(ecu, 0) + 1
+                        st.subheader("ECUs")
+                        for ecu, count in sorted(ecu_counts.items(), key=lambda x: x[1], reverse=True):
+                            st.write(f"**{ecu}**: {count} channels")
+                with col2:
+                    if metadata.channels:
+                        sample_channels = list(metadata.channels.keys())[:5]
+                        st.subheader("Sample Channels")
+                        for channel in sample_channels:
+                            st.write(f"- {channel}")
+                        if len(metadata.channels) > 5:
+                            st.write(f"*...and {len(metadata.channels) - 5} more*")
+                    st.info("👉 Use the **Signal Browser** tab to explore and select channels for plotting")
+            elif selected_tab == "📈 Signal Browser":
+                st.subheader("Select Signals to Plot")
+                # Prepare channel data for the signal browser
+                channels_data = []
                 if metadata.channels:
-                    channels_data = []
                     for channel_id, channel in metadata.channels.items():
                         channels_data.append({
                             "Name": channel.name,
@@ -315,33 +344,64 @@ async def main() -> None:
                             "Description": channel.description or "N/A",
                             "ECU": channel.ecu or "N/A"
                         })
-                    channels_df = pd.DataFrame(channels_data)
-                    st.dataframe(channels_df, use_container_width=True)
-                    signal_filter = st.text_input("Filter signals", placeholder="Enter search term...")
-                    if signal_filter:
-                        filtered_channels = [
-                            channel for channel in channels_data 
-                            if signal_filter.lower() in channel["Name"].lower() or
-                               signal_filter.lower() in (channel["Description"] or "").lower()
-                        ]
-                        if filtered_channels:
-                            st.dataframe(pd.DataFrame(filtered_channels), use_container_width=True)
-                        else:
-                            st.info("No channels match your filter criteria.")
-                    if "selected_channels" not in st.session_state:
-                        st.session_state.selected_channels = []
-                    st.subheader("Channel Selection")
-                    all_channels = [channel["Name"] for channel in channels_data]
-                    selected_channel_names = st.multiselect(
-                        "Select channels to analyze:",
-                        options=all_channels,
-                        default=st.session_state.selected_channels,
-                        help="Select channels that you want to analyze. These will be included in the context for the AI."
+                if "selected_channels" not in st.session_state:
+                    st.session_state.selected_channels = []
+                col1, col2 = st.columns([2, 1])
+                with col1:
+                    signal_search = st.text_input(
+                        "Search signals", 
+                        placeholder="Enter signal name or description...",
+                        key="signal_search_customtab"
                     )
-                    st.session_state.selected_channels = selected_channel_names
-                    if st.button("Clear Selection"):
-                        st.session_state.selected_channels = []
-                        st.rerun()
+                with col2:
+                    all_ecus = sorted(list(set([
+                        channel["ECU"] for channel in channels_data 
+                        if channel["ECU"] != "N/A"
+                    ])))
+                    selected_ecu = st.selectbox(
+                        "Filter by ECU", 
+                        options=["All ECUs"] + all_ecus,
+                        key="ecu_filter_customtab"
+                    )
+                filtered_channels = channels_data
+                if signal_search:
+                    filtered_channels = [
+                        channel for channel in filtered_channels
+                        if signal_search.lower() in channel["Name"].lower() or 
+                           signal_search.lower() in (channel["Description"] or "").lower()
+                    ]
+                if selected_ecu != "All ECUs":
+                    filtered_channels = [
+                        channel for channel in filtered_channels
+                        if channel["ECU"] == selected_ecu
+                    ]
+                st.write(f"Showing {len(filtered_channels)} of {len(channels_data)} signals")
+                signal_options = [channel["Name"] for channel in filtered_channels]
+                selected_signals = st.multiselect(
+                    "Select signals to plot",
+                    options=signal_options,
+                    default=st.session_state.selected_channels,
+                    key="signal_selector_customtab"
+                )
+                st.session_state.selected_channels = selected_signals
+                if selected_signals:
+                    st.write(f"Selected {len(selected_signals)} signals")
+                    if st.button("📊 Plot Selected Signals", key="plot_selected_customtab", type="primary", use_container_width=True):
+                        st.toast(f"Plotting {len(selected_signals)} signals")
+                    selected_channel_data = [
+                        channel for channel in filtered_channels
+                        if channel["Name"] in selected_signals
+                    ]
+                    if selected_channel_data:
+                        with st.expander("Selected Signal Details", expanded=False):
+                            st.dataframe(pd.DataFrame(selected_channel_data), use_container_width=True)
+                else:
+                    st.info("Select signals from the list above to plot them")
+                if st.session_state.selected_channels and st.button("Clear Selection", key="clear_selection_customtab", use_container_width=True):
+                    st.session_state.selected_channels = []
+                    st.rerun()
+                if len(filtered_channels) > 200:
+                    st.warning(f"Too many signals to display ({len(filtered_channels)}). Please refine your search.")
 
     # --- RIGHT COLUMN: Chat UI ---
     with right:

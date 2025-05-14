@@ -38,6 +38,7 @@ from service.utils import (
 )
 # Import our file management router
 from storage.routes import router as files_router
+from data_endpoints import register_data_endpoints
 
 warnings.filterwarnings("ignore", category=LangChainBetaWarning)
 logger = logging.getLogger(__name__)
@@ -68,6 +69,8 @@ router = APIRouter(prefix="", dependencies=[Depends(verify_bearer)])
 app.include_router(files_router)
 # Include the main router
 app.include_router(router)
+# Register data endpoints
+register_data_endpoints(app)
 
 
 @app.get("/info")
