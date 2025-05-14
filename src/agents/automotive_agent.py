@@ -39,25 +39,40 @@ Duration: {file_context.get('duration', 0)} seconds
 Channel count: {file_context.get('channel_count', 0)}
 """
 
-        # Add information about selected channels if available
-        if 'selected_channels' in file_context and file_context['selected_channels']:
-            system_context += f"\nSelected channels: {', '.join(file_context['selected_channels'])}"
+        # Add information about all available channels and their details
+        if 'available_channels' in file_context and file_context['available_channels']:
+            system_context += "\n\nAvailable channels and their details:"
             
-            # Add channel details if available
+            # If we have full channel details, use them
             if 'channel_details' in file_context:
-                system_context += "\n\nChannel details:"
-                for channel, details in file_context.get('channel_details', {}).items():
+                for channel, details in file_context['channel_details'].items():
                     unit = details.get('unit', 'N/A')
                     min_val = details.get('min_value', 'N/A')
                     max_val = details.get('max_value', 'N/A')
-                    system_context += f"\n- {channel}: Unit: {unit}, Range: {min_val} to {max_val}"
-        
-        # Add information about available channels if no specific channels are selected
-        elif 'available_channels' in file_context and file_context['available_channels']:
-            sample_channels = file_context['available_channels'][:5]  # Show up to 5 channels
-            system_context += f"\n\nSample available channels: {', '.join(sample_channels)}"
+                    sampling_rate = details.get('sampling_rate', 'N/A')
+                    description = details.get('description', 'N/A')
+                    ecu = details.get('ecu', 'N/A')
+                    data_type = details.get('data_type', 'N/A')
+                    
+                    system_context += f"\n- {channel}:"
+                    system_context += f"\n  Unit: {unit}"
+                    system_context += f"\n  Range: {min_val} to {max_val}"
+                    system_context += f"\n  Sampling Rate: {sampling_rate}"
+                    system_context += f"\n  Description: {description}"
+                    system_context += f"\n  ECU: {ecu}"
+                    system_context += f"\n  Data Type: {data_type}"
+            # If we only have channel names (too many channels), show a warning
+            elif file_context.get('channel_schema_only'):
+                system_context += f"\n{file_context.get('channel_schema_warning', '')}"
+                system_context += "\nChannel types:"
+                for channel, data_type in file_context.get('channel_types', {}).items():
+                    system_context += f"\n- {channel}: {data_type}"
+            
+            # Add selected channels if any
+            if 'selected_channels' in file_context and file_context['selected_channels']:
+                system_context += f"\n\nCurrently selected channels: {', '.join(file_context['selected_channels'])}"
 
-        system_context += "\n\nYou can help analyze this automotive data, create visualizations, and find patterns or anomalies."
+        system_context += "\n\nYou can help analyze this automotive data, create visualizations, and find patterns or anomalies. Use the channel details above to provide accurate information about the signals."
         
         # Prepend the system message to the conversation
         from langchain_core.messages import SystemMessage
