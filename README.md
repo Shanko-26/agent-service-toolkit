@@ -237,6 +237,12 @@ A modern Streamlit + FastAPI application for interactive automotive measurement 
   - Search, filter by ECU, and multi-select signals for plotting
   - Robust session state: tab and selection state persist across reruns
   - Modern UX: no double-clicks, no tab jumps, always in sync
+- **Plotting**:
+  - Time-series plotting of selected signals
+  - Adjustable time window with interactive sliders
+  - Support for multiple channels on the same graph
+  - Extensible architecture supports overlays and annotations
+  - LLM-integrated: ask the AI to create or modify plots
 - **Chat Copilot**: Ask questions about your data, get context-aware answers
 - **Backend API**: FastAPI endpoints for file management, metadata, and signal data
 - **Testing**: Pytest-based tests for backend endpoints and parser
@@ -272,8 +278,9 @@ Visit [http://localhost:8501](http://localhost:8501)
 1. **Upload** an MDF file in the left sidebar
 2. **Browse metadata** in the center column (File Metadata tab)
 3. **Explore and select signals** in the Signal Browser tab (search, filter, multi-select)
-4. **Ask questions** in the chat panel (right column)
-5. **Plotting**: (coming soon) Use the "Plot Selected Signals" button to visualize selected signals
+4. **Plot data** by clicking "Plot Selected Signals" and adjust the time window using the slider
+5. **Ask questions** in the chat panel (right column)
+6. **AI-powered plotting**: Ask the AI to plot specific signals (e.g., "Plot the EngineSpeed and VehicleSpeed signals")
 
 ---
 
@@ -298,7 +305,8 @@ pytest
 ## Architecture
 - **Frontend**: Streamlit 1.41+, modern session state and custom tab handling
 - **Backend**: FastAPI, Pydantic, asammdf for MDF parsing
-- **State**: All tab and selection state is robustly managed in `st.session_state`
+- **Visualization**: Plotly for interactive plots, pandas for data manipulation
+- **State**: All tab, selection, and plot configuration is robustly managed in `st.session_state`
 - **No race conditions**: Custom tab selector ensures widgets never lose state
 
 ---

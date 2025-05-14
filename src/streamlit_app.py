@@ -2,8 +2,10 @@ import asyncio
 import os
 import urllib.parse
 import uuid
+import traceback
 from collections.abc import AsyncGenerator
 from datetime import datetime
+import httpx
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -14,6 +16,16 @@ from client import AgentClient, AgentClientError, FileClient, FileClientError
 from schema import ChatHistory, ChatMessage
 from schema.task_data import TaskData, TaskDataStatus
 from schema.automotive.models import MeasurementFile
+from visualization.plot import (
+    init_plot_state,
+    update_plot_config, 
+    handle_plot_request,
+    handle_llm_tool_call,
+    render_time_controls,
+    prepare_plot_data,
+    render_plot,
+    download_data_as_csv
+)
 
 # A Streamlit app for interacting with the langgraph agent via a simple chat interface.
 # The app has three main functions which are all run async:
@@ -113,6 +125,9 @@ async def main() -> None:
     # Initialize file context for chat history
     if "file_context" not in st.session_state:
         st.session_state.file_context = {}
+    
+    # Initialize plot state
+    init_plot_state()
     
     # If a file is selected, fetch its metadata
     if st.session_state.selected_file_id and (
@@ -274,7 +289,125 @@ async def main() -> None:
     # --- CENTER COLUMN: Plot area placeholder and file metadata ---
     with center:
         st.header("Plot Area")
-        st.info("Plots will appear here.")
+        
+        # Add a help expander to explain how to use the plot
+        with st.expander("ℹ️ Plot Help", expanded=False):
+            st.markdown("""
+            ### How to use the plotting feature:
+            
+            1. **Select signals** to plot from the Signal Browser tab
+            2. Click **Plot Selected Signals** to visualize the data
+            3. **Interact with the plot**:
+               - 📱 **Hover** over the lines to see exact values
+               - 🖱️ **Click and drag** to zoom into a specific area
+               - 📊 Use the **toolbar** in the upper right for more options
+               - 📈 Use the **rangeslider** at the bottom to quickly navigate and select time ranges
+            4. **Download the plotted data** as CSV for further analysis
+            
+            *Tip: You can also ask the AI in the chat panel to plot specific signals for you!*
+            """)
+        
+        # Check if we have a selected file and plot configuration
+        if st.session_state.selected_file_id:
+            # No need for separate time range controls - Plotly provides this functionality
+            
+            # Check if we have channels selected for plotting
+            if st.session_state.get("plot_config", {}).get("channels"):
+                # Create placeholder for plot visualization
+                plot_placeholder = st.empty()
+                
+                # Define a synchronous function to handle plotting
+                def plot_signals_sync():
+                    try:
+                        # Get the configuration
+                        config = st.session_state.get("plot_config", {})
+                        channels = config.get("channels", [])
+                        
+                        if not channels:
+                            st.info("No channels selected for plotting.")
+                            return
+                        
+                        # Get client and file_id
+                        file_client = st.session_state.file_client
+                        file_id = st.session_state.selected_file_id
+                        
+                        if not file_id:
+                            st.warning("No file selected. Please select a file first.")
+                            return
+                        
+                        # Use a single spinner instead of multiple status updates
+                        with st.spinner(f"Loading and plotting {len(channels)} signals..."):
+                            # Get parameters for the data request
+                            params = {
+                                "channels": ",".join(channels)
+                            }
+                            if config.get("start_time") is not None:
+                                params["start_time"] = config.get("start_time")
+                            if config.get("end_time") is not None:
+                                params["end_time"] = config.get("end_time")
+                            
+                            # Make HTTP request
+                            try:
+                                with httpx.Client() as client:
+                                    response = client.get(
+                                        f"{file_client.base_url}/files/{file_id}/data",
+                                        params=params,
+                                        headers=file_client._headers,
+                                        timeout=30.0  # Increased timeout for large datasets
+                                    )
+                                    response.raise_for_status()
+                                    signal_data = response.json()
+                            except httpx.HTTPStatusError as e:
+                                if e.response.status_code == 404:
+                                    st.error(f"The data endpoint returned 404. Please make sure the backend API is running and the file exists.")
+                                elif e.response.status_code == 400:
+                                    st.error(f"Bad request: {e.response.text}")
+                                else:
+                                    st.error(f"HTTP error: {e.response.status_code} - {e.response.reason_phrase}")
+                                return
+                            except httpx.RequestError as e:
+                                st.error(f"Request error: {str(e)}")
+                                return
+                            
+                            # Check if we got valid data
+                            if not signal_data:
+                                st.error("No data returned from the server. The channels might not exist or contain no data.")
+                                return
+                            
+                            # Process data
+                            plot_data = prepare_plot_data(signal_data)
+                            
+                            if plot_data.empty:
+                                st.warning("No data available for the selected channels in the specified time range.")
+                                return
+                            
+                            # Render the plot
+                            render_plot(plot_data, config)
+                        
+                        # Add download button for the data
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            st.success(f"📊 Plotted {len(channels)} channels with {len(plot_data)} data points")
+                        with col2:
+                            # Generate a meaningful filename based on selected channels
+                            channels_str = "_".join(channels[:2])
+                            if len(channels) > 2:
+                                channels_str += f"_and_{len(channels)-2}_more"
+                            filename = f"{channels_str}_data.csv"
+                            download_data_as_csv(plot_data, filename)
+                            
+                    except Exception as e:
+                        st.error(f"Error plotting data: {str(e)}")
+                        with st.expander("Error Details", expanded=True):
+                            st.code(traceback.format_exc())
+                
+                # Call the synchronous function directly
+                plot_signals_sync()
+            else:
+                st.info("Select channels to plot data from the Signal Browser tab.")
+        else:
+            st.info("Select a file to plot data.")
+        
         if st.session_state.selected_file_metadata:
             metadata = st.session_state.selected_file_metadata
             tab_names = ["📊 File Metadata", "📈 Signal Browser"]
@@ -386,8 +519,29 @@ async def main() -> None:
                 st.session_state.selected_channels = selected_signals
                 if selected_signals:
                     st.write(f"Selected {len(selected_signals)} signals")
-                    if st.button("📊 Plot Selected Signals", key="plot_selected_customtab", type="primary", use_container_width=True):
-                        st.toast(f"Plotting {len(selected_signals)} signals")
+                    
+                    # Create plot button with loading state
+                    plot_button = st.button(
+                        "📊 Plot Selected Signals", 
+                        key="plot_selected_customtab", 
+                        type="primary", 
+                        use_container_width=True,
+                        help="Click to plot the selected signals in the plot area above"
+                    )
+                    
+                    if plot_button:
+                        # Create a toast notification
+                        st.toast(f"Plotting {len(selected_signals)} signals...")
+                        
+                        # Update plot configuration with selected signals
+                        update_plot_config(channels=selected_signals, action_source="user")
+                        
+                        # Scroll to top to see the plot
+                        st.query_params["view"] = "plots"
+                        
+                        # Manually trigger a rerun to show the plot
+                        st.rerun()
+                    
                     selected_channel_data = [
                         channel for channel in filtered_channels
                         if channel["Name"] in selected_signals
@@ -476,7 +630,23 @@ async def main() -> None:
                             # Still include selected channels for UI context
                             if hasattr(st.session_state, 'selected_channels') and st.session_state.selected_channels:
                                 file_context["selected_channels"] = st.session_state.selected_channels
+                                
+                            # Add plot config for LLM context
+                            plot_config = st.session_state.get("plot_config", {})
+                            if plot_config and plot_config.get("channels"):
+                                file_context["current_plot"] = {
+                                    "channels": plot_config.get("channels", []),
+                                    "start_time": plot_config.get("start_time"),
+                                    "end_time": plot_config.get("end_time"),
+                                    "has_overlays": bool(plot_config.get("overlays")),
+                                    "has_annotations": bool(plot_config.get("annotations")),
+                                }
                         agent_config["current_file"] = file_context
+                        
+                        # Register tool handlers
+                        agent_config["tool_handlers"] = {
+                            "plot_signals": handle_llm_tool_call
+                        }
                 if use_streaming:
                     stream = agent_client.astream(
                         message=user_input,

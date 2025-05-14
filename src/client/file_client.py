@@ -183,4 +183,31 @@ class FileClient:
                 response.raise_for_status()
                 return response.json()
         except httpx.HTTPError as e:
-            raise FileClientError(f"Error deleting file: {e}") 
+            raise FileClientError(f"Error deleting file: {e}")
+
+    async def get_channel_data(self, file_id: str, params: dict) -> dict:
+        """
+        Get channel data for specific channels from a file.
+
+        Args:
+            file_id (str): The ID of the file to get data from.
+            params (dict): Query parameters for the request.
+                Should include 'channels' (comma-separated list of channel names).
+                May include 'start_time' and 'end_time' (in seconds).
+
+        Returns:
+            dict: Channel data where keys are channel names and values are dictionaries
+                  with 'timestamps' and 'values' lists.
+        """
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{self.base_url}/files/{file_id}/data",
+                    params=params,
+                    headers=self._headers,
+                    timeout=self.timeout,
+                )
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPError as e:
+            raise FileClientError(f"Error getting channel data: {e}") 
