@@ -74,13 +74,6 @@ def init_plot_state() -> None:
         "layout": {},           # Plotly layout customizations
         "last_update": None,    # Timestamp of last update
         "action_source": None,  # "user" or "llm"
-        "use_multi_axis": False,  # Whether to use multiple y-axes
-        "y_axes": [],           # Configuration for multiple y-axes
-        "use_subplots": False,  # Whether to use subplots
-        "subplots": [],         # Configuration for subplots
-        "subplot_rows": 1,      # Number of rows in subplot grid
-        "subplot_cols": 1,      # Number of columns in subplot grid
-        "subplot_titles": [],   # Titles for each subplot
     })
 
 def update_plot_config(
@@ -252,175 +245,6 @@ def render_plot(data: pd.DataFrame, config: Optional[PlotConfig] = None) -> None
     if "show_grid" not in st.session_state:
         st.session_state.show_grid = True
     
-    # Plot mode selection
-    st.subheader("Plot Configuration")
-    plot_type = st.radio(
-        "Plot Type",
-        ["Single Plot", "Multi-Axis Plot", "Subplots"],
-        horizontal=True,
-        help="Select the type of plot to display"
-    )
-    
-    # Update plot config based on selection
-    use_multi_axis = plot_type == "Multi-Axis Plot"
-    use_subplots = plot_type == "Subplots"
-    
-    # Store in config
-    config["use_multi_axis"] = use_multi_axis
-    config["use_subplots"] = use_subplots
-    
-    # Configure multi-axis settings if selected
-    if use_multi_axis and config.get("channels"):
-        with st.expander("Multi-Axis Settings", expanded=True):
-            # If y_axes not configured yet, initialize with all channels on left
-            if not config.get("y_axes"):
-                config["y_axes"] = [{
-                    "title": "Primary Axis",
-                    "unit": "Value",
-                    "channels": config.get("channels", []),
-                    "position": "left"
-                }]
-            
-            # UI to add a new axis
-            col1, col2, col3 = st.columns([2, 2, 1])
-            with col1:
-                new_axis_title = st.text_input("Axis Title", key="new_axis_title")
-            with col2:
-                new_axis_unit = st.text_input("Unit", key="new_axis_unit")
-            with col3:
-                new_axis_position = st.selectbox("Position", ["left", "right"], key="new_axis_position")
-            
-            # Get all channels not already assigned to an axis
-            all_channels = set(config.get("channels", []))
-            assigned_channels = set()
-            for axis in config.get("y_axes", []):
-                assigned_channels.update(axis.get("channels", []))
-            available_channels = list(all_channels - assigned_channels)
-            
-            # Allow selecting channels for the new axis
-            selected_channels = st.multiselect(
-                "Channels for new axis",
-                options=available_channels,
-                key="new_axis_channels"
-            )
-            
-            # Add button
-            if st.button("Add Axis"):
-                if selected_channels and new_axis_title:
-                    config.setdefault("y_axes", []).append({
-                        "title": new_axis_title,
-                        "unit": new_axis_unit,
-                        "channels": selected_channels,
-                        "position": new_axis_position
-                    })
-                    st.experimental_rerun()
-            
-            # Show existing axes for editing
-            for i, axis in enumerate(config.get("y_axes", [])):
-                st.markdown(f"**Axis {i+1}: {axis.get('title')}**")
-                col1, col2, col3 = st.columns([3, 1, 1])
-                
-                with col1:
-                    st.write(f"Channels: {', '.join(axis.get('channels', []))}")
-                with col2:
-                    st.write(f"Unit: {axis.get('unit', '')}")
-                with col3:
-                    st.write(f"Position: {axis.get('position', 'left')}")
-                
-                # Remove button
-                if len(config.get("y_axes", [])) > 1:  # Don't allow removing the last axis
-                    if st.button(f"Remove Axis {i+1}"):
-                        config["y_axes"].pop(i)
-                        st.experimental_rerun()
-                
-                st.markdown("---")
-    
-    # Configure subplot settings if selected
-    if use_subplots and config.get("channels"):
-        with st.expander("Subplot Settings", expanded=True):
-            # Configure rows and columns
-            col1, col2 = st.columns(2)
-            with col1:
-                subplot_rows = st.number_input("Number of Rows", min_value=1, max_value=4, value=config.get("subplot_rows", 1), key="subplot_rows")
-            with col2:
-                subplot_cols = st.number_input("Number of Columns", min_value=1, max_value=3, value=config.get("subplot_cols", 1), key="subplot_cols")
-            
-            # Update config
-            config["subplot_rows"] = subplot_rows
-            config["subplot_cols"] = subplot_cols
-            
-            # Ensure subplot list is initialized
-            if not config.get("subplots"):
-                config["subplots"] = []
-                for r in range(1, subplot_rows + 1):
-                    for c in range(1, subplot_cols + 1):
-                        # Create a default subplot for each position
-                        config["subplots"].append({
-                            "row": r,
-                            "col": c,
-                            "channels": [],
-                            "axis_config": {
-                                "title": f"Subplot {r}.{c}",
-                                "unit": ""
-                            }
-                        })
-            
-            # Create enough subplots for the grid
-            needed_subplots = subplot_rows * subplot_cols
-            current_subplots = len(config.get("subplots", []))
-            
-            if current_subplots < needed_subplots:
-                # Add more subplots
-                for i in range(current_subplots, needed_subplots):
-                    row = (i // subplot_cols) + 1
-                    col = (i % subplot_cols) + 1
-                    config["subplots"].append({
-                        "row": row,
-                        "col": col,
-                        "channels": [],
-                        "axis_config": {
-                            "title": f"Subplot {row}.{col}",
-                            "unit": ""
-                        }
-                    })
-            elif current_subplots > needed_subplots:
-                # Remove excess subplots
-                config["subplots"] = config["subplots"][:needed_subplots]
-            
-            # UI for configuring each subplot
-            st.markdown("### Configure Subplots")
-            
-            # Get all available channels
-            all_channels = config.get("channels", [])
-            
-            # Create tabs for each subplot
-            subplot_tabs = st.tabs([f"Subplot {s.get('row')}.{s.get('col')}" for s in config.get("subplots", [])])
-            
-            for i, (subplot, tab) in enumerate(zip(config.get("subplots", []), subplot_tabs)):
-                with tab:
-                    # Title and unit
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        subplot["axis_config"]["title"] = st.text_input(
-                            "Title", 
-                            value=subplot["axis_config"].get("title", f"Subplot {subplot.get('row')}.{subplot.get('col')}"),
-                            key=f"subplot_title_{i}"
-                        )
-                    with col2:
-                        subplot["axis_config"]["unit"] = st.text_input(
-                            "Unit", 
-                            value=subplot["axis_config"].get("unit", ""),
-                            key=f"subplot_unit_{i}"
-                        )
-                    
-                    # Channel selection
-                    subplot["channels"] = st.multiselect(
-                        "Channels",
-                        options=all_channels,
-                        default=subplot.get("channels", []),
-                        key=f"subplot_channels_{i}"
-                    )
-    
     # Create control button for grid visibility 
     show_grid = st.toggle("Show grid", value=st.session_state.show_grid)
     st.session_state.show_grid = show_grid
@@ -432,255 +256,73 @@ def render_plot(data: pd.DataFrame, config: Optional[PlotConfig] = None) -> None
     font_color = "rgb(240, 240, 250)"
     grid_color = "rgba(150, 150, 150, 0.2)"
     
-    # Determine whether to use subplots, multi-axis, or single plot
-    use_subplots = config.get("use_subplots", False)
-    use_multi_axis = config.get("use_multi_axis", False)
+    # Standard single-axis plot
+    fig = go.Figure()
     
-    if use_subplots:
-        # Create a subplot figure
-        subplot_rows = config.get("subplot_rows", 1)
-        subplot_cols = config.get("subplot_cols", 1)
-        subplot_titles = [s["axis_config"].get("title", "") for s in config.get("subplots", [])]
+    # Add traces for each channel
+    for i, channel in enumerate(config.get("channels", [])):
+        if channel in data.columns:
+            color_idx = i % len(colors)
+            fig.add_trace(go.Scatter(
+                x=data.index,
+                y=data[channel],
+                mode="lines",
+                name=channel,
+                line=dict(color=colors[color_idx], width=2),
+                hovertemplate=f"{channel}: %{{y:.4f}}<br>Time: %{{x:.4f}} s<extra></extra>"
+            ))
+    
+    # Handle overlays (like moving averages)
+    for i, overlay in enumerate(config.get("overlays", [])):
+        overlay_type = overlay.get("type")
+        channel = overlay.get("channel")
         
-        fig = make_subplots(
-            rows=subplot_rows, 
-            cols=subplot_cols,
-            subplot_titles=subplot_titles,
-            shared_xaxes=True,  # Share x-axis for aligned zooming
-            vertical_spacing=0.1
-        )
-        
-        # Add traces to appropriate subplots
-        for i, subplot_config in enumerate(config.get("subplots", [])):
-            row = subplot_config.get("row", 1)
-            col = subplot_config.get("col", 1)
-            channels = subplot_config.get("channels", [])
-            
-            for j, channel in enumerate(channels):
-                if channel in data.columns:
-                    color_idx = (j + i*len(channels)) % len(colors)
-                    fig.add_trace(
-                        go.Scatter(
-                            x=data.index,
-                            y=data[channel],
-                            mode="lines",
-                            name=channel,
-                            line=dict(color=colors[color_idx], width=2),
-                            hovertemplate=f"{channel}: %{{y:.4f}}<br>Time: %{{x:.4f}} s<extra></extra>"
-                        ),
-                        row=row,
-                        col=col
-                    )
-            
-            # Update y-axis title for this subplot
-            axis_config = subplot_config.get("axis_config", {})
-            y_title = axis_config.get("title", "")
-            y_unit = axis_config.get("unit", "")
-            if y_title and y_unit:
-                y_axis_title = f"{y_title} ({y_unit})"
-            elif y_title:
-                y_axis_title = y_title
-            elif y_unit:
-                y_axis_title = f"Value ({y_unit})"
-            else:
-                y_axis_title = "Value"
-                
-            fig.update_yaxes(
-                title_text=y_axis_title,
-                gridcolor=grid_color if show_grid else "rgba(0,0,0,0)",
-                showgrid=show_grid,
-                showline=True,
-                linewidth=1,
-                linecolor="rgba(150, 150, 150, 0.5)",
-                mirror=True,
-                zeroline=False,
-                row=row,
-                col=col
-            )
-            
-    elif use_multi_axis:
-        # Create a figure with multiple y-axes
-        fig = go.Figure()
-        
-        # Track which axis is used for which side
-        left_axis_count = 0
-        right_axis_count = 0
-        
-        # Add traces for each axis group
-        for i, axis_config in enumerate(config.get("y_axes", [])):
-            channels = axis_config.get("channels", [])
-            position = axis_config.get("position", "left")
-            
-            # Determine the axis id based on position
-            if position == "left":
-                left_axis_count += 1
-                axis_id = "" if left_axis_count == 1 else f"y{left_axis_count + right_axis_count}"
-            else:  # right
-                right_axis_count += 1
-                axis_id = f"y{left_axis_count + right_axis_count}"
-            
-            # Add all channels for this axis
-            for j, channel in enumerate(channels):
-                if channel in data.columns:
-                    color_idx = (j + i*len(channels)) % len(colors)
-                    
-                    # Set the appropriate y-axis
-                    axis_dict = {}
-                    if axis_id:
-                        axis_dict["yaxis"] = axis_id
-                    
-                    fig.add_trace(
-                        go.Scatter(
-                            x=data.index,
-                            y=data[channel],
-                            mode="lines",
-                            name=channel,
-                            line=dict(color=colors[color_idx], width=2),
-                            hovertemplate=f"{channel}: %{{y:.4f}}<br>Time: %{{x:.4f}} s<extra></extra>",
-                            **axis_dict
-                        )
-                    )
-            
-            # Configure the axis
-            y_title = axis_config.get("title", "")
-            y_unit = axis_config.get("unit", "")
-            if y_title and y_unit:
-                y_axis_title = f"{y_title} ({y_unit})"
-            elif y_title:
-                y_axis_title = y_title
-            elif y_unit:
-                y_axis_title = f"Value ({y_unit})"
-            else:
-                y_axis_title = "Value"
-                
-            axis_layout = {
-                "title": y_axis_title,
-                "gridcolor": grid_color if show_grid else "rgba(0,0,0,0)",
-                "showgrid": show_grid,
-                "showline": True,
-                "linewidth": 1,
-                "linecolor": "rgba(150, 150, 150, 0.5)",
-                "mirror": position == "left",
-                "zeroline": False,
-                "side": position
-            }
-            
-            # Apply optional axis range if provided
-            if "range" in axis_config:
-                axis_layout["range"] = axis_config["range"]
-                
-            # Update the appropriate axis
-            if axis_id == "":
-                fig.update_layout(yaxis=axis_layout)
-            else:
-                fig.update_layout(**{axis_id: axis_layout})
-            
-            # If this is a right-side axis, make it visible by adding overlaying property
-            if position == "right" and axis_id != "":
-                fig.update_layout(**{axis_id: {"overlaying": "y", "anchor": "x"}})
-                
-    else:
-        # Standard single-axis plot
-        fig = go.Figure()
-        
-        # Add traces for each channel
-        for i, channel in enumerate(config.get("channels", [])):
-            if channel in data.columns:
-                color_idx = i % len(colors)
+        if overlay_type == "moving_average" and channel in data.columns:
+            window = overlay.get("window", 10)
+            if not data[channel].isna().all():
+                # Calculate moving average
+                ma = data[channel].rolling(window=window).mean()
+                color_idx = (i + len(config.get("channels", []))) % len(colors)
                 fig.add_trace(go.Scatter(
                     x=data.index,
-                    y=data[channel],
+                    y=ma,
                     mode="lines",
-                    name=channel,
-                    line=dict(color=colors[color_idx], width=2),
-                    hovertemplate=f"{channel}: %{{y:.4f}}<br>Time: %{{x:.4f}} s<extra></extra>"
+                    line=dict(color=colors[color_idx], dash="dash", width=1.5),
+                    name=f"{channel} (MA-{window})",
+                    hovertemplate=f"{channel} MA-{window}: %{{y:.4f}}<br>Time: %{{x:.4f}} s<extra></extra>"
                 ))
-        
-        # Handle overlays (like moving averages)
-        for i, overlay in enumerate(config.get("overlays", [])):
-            overlay_type = overlay.get("type")
-            channel = overlay.get("channel")
-            
-            if overlay_type == "moving_average" and channel in data.columns:
-                window = overlay.get("window", 10)
-                if not data[channel].isna().all():
-                    # Calculate moving average
-                    ma = data[channel].rolling(window=window).mean()
-                    color_idx = (i + len(config.get("channels", []))) % len(colors)
-                    fig.add_trace(go.Scatter(
-                        x=data.index,
-                        y=ma,
-                        mode="lines",
-                        line=dict(color=colors[color_idx], dash="dash", width=1.5),
-                        name=f"{channel} (MA-{window})",
-                        hovertemplate=f"{channel} MA-{window}: %{{y:.4f}}<br>Time: %{{x:.4f}} s<extra></extra>"
-                    ))
     
-    # Add annotations (like threshold lines) to all plot types
+    # Add annotations (like threshold lines)
     for i, annotation in enumerate(config.get("annotations", [])):
         if annotation.get("type") == "threshold":
             value = annotation.get("value")
             label = annotation.get("label", f"Threshold: {value}")
             color = annotation.get("color", colors[0])
             
-            if use_subplots:
-                # Add to specific subplot if specified
-                subplot_idx = annotation.get("subplot_idx", 0)
-                if subplot_idx < len(config.get("subplots", [])):
-                    subplot = config.get("subplots", [])[subplot_idx]
-                    row = subplot.get("row", 1)
-                    col = subplot.get("col", 1)
-                    
-                    fig.add_shape(
-                        type="line",
-                        x0=0,
-                        x1=1,
-                        y0=value,
-                        y1=value,
-                        xref=f"x{row+col-1}",
-                        yref=f"y{row+col-1}",
-                        line=dict(
-                            color=color,
-                            width=annotation.get("width", 2),
-                            dash=annotation.get("dash", "dash"),
-                        )
-                    )
-                    
-                    fig.add_annotation(
-                        x=1,
-                        y=value,
-                        xref=f"x{row+col-1}",
-                        yref=f"y{row+col-1}",
-                        text=label,
-                        showarrow=False,
-                        xanchor="right",
-                        font=dict(color=color)
-                    )
-            else:
-                # Add to main plot
-                fig.add_shape(
-                    type="line",
-                    xref="paper",
-                    x0=0,
-                    x1=1,
-                    y0=value,
-                    y1=value,
-                    line=dict(
-                        color=color,
-                        width=annotation.get("width", 2),
-                        dash=annotation.get("dash", "dash"),
-                    )
+            # Add to main plot
+            fig.add_shape(
+                type="line",
+                xref="paper",
+                x0=0,
+                x1=1,
+                y0=value,
+                y1=value,
+                line=dict(
+                    color=color,
+                    width=annotation.get("width", 2),
+                    dash=annotation.get("dash", "dash"),
                 )
-                
-                fig.add_annotation(
-                    xref="paper",
-                    x=1,
-                    y=value,
-                    text=label,
-                    showarrow=False,
-                    xanchor="right",
-                    font=dict(color=color)
-                )
+            )
+            
+            fig.add_annotation(
+                xref="paper",
+                x=1,
+                y=value,
+                text=label,
+                showarrow=False,
+                xanchor="right",
+                font=dict(color=color)
+            )
     
     # Configure layout with improved appearance and theme options
     layout = {
@@ -695,11 +337,11 @@ def render_plot(data: pd.DataFrame, config: Optional[PlotConfig] = None) -> None
             "mirror": True,
             "zeroline": False,
         },
-        "height": 550 + (200 * (subplot_rows - 1) if use_subplots else 0),  # Increase height for multiple subplots
+        "height": 550,
         "legend": {
             "orientation": "h", 
             "yanchor": "bottom", 
-            "y": -0.2 if not use_subplots else -(0.1 + 0.05 * subplot_rows),
+            "y": -0.2,
             "font": {"color": font_color}
         },
         "margin": {"l": 60, "r": 60, "t": 60, "b": 80},
@@ -712,24 +354,32 @@ def render_plot(data: pd.DataFrame, config: Optional[PlotConfig] = None) -> None
         **config.get("layout", {})
     }
     
-    # If not using subplots, configure the main y-axis title
-    if not use_subplots and not use_multi_axis:
-        # For single plot, use the first channel as the y-axis title if only one channel
-        if len(config.get("channels", [])) == 1:
-            y_axis_title = config.get("channels", ["Value"])[0]
+    # Create a meaningful y-axis title
+    channels = config.get("channels", [])
+    if len(channels) == 1:
+        # If there's only one channel, use its name as the y-axis title
+        y_axis_title = channels[0]
+    elif len(channels) > 1:
+        # For multiple channels, use a more generic title with count
+        if len(channels) <= 3:
+            # For 2-3 channels, list them all
+            y_axis_title = f"Values: {', '.join(channels)}"
         else:
-            y_axis_title = "Values"
-            
-        layout["yaxis"] = {
-            "title": y_axis_title,
-            "gridcolor": grid_color if show_grid else "rgba(0,0,0,0)",
-            "showgrid": show_grid,
-            "showline": True,
-            "linewidth": 1, 
-            "linecolor": "rgba(150, 150, 150, 0.5)",
-            "mirror": True,
-            "zeroline": False,
-        }
+            # For more channels, just give the count
+            y_axis_title = f"Values for {len(channels)} channels"
+    else:
+        y_axis_title = "Value"
+        
+    layout["yaxis"] = {
+        "title": y_axis_title,
+        "gridcolor": grid_color if show_grid else "rgba(0,0,0,0)",
+        "showgrid": show_grid,
+        "showline": True,
+        "linewidth": 1, 
+        "linecolor": "rgba(150, 150, 150, 0.5)",
+        "mirror": True,
+        "zeroline": False,
+    }
     
     fig.update_layout(**layout)
     
