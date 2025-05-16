@@ -642,7 +642,6 @@ async def main() -> None:
                 st.session_state.collapse_right = True
                 st.rerun()
             st.header("Chat")
-            # --- Scrollable chat message area ---
             chat_height = 700  # px, adjust as needed for your layout
             with st.container(height=chat_height):
                 messages: list[ChatMessage] = st.session_state.messages
@@ -663,92 +662,101 @@ async def main() -> None:
                     for m in messages:
                         yield m
                 await draw_messages(amessage_iter())
+                # Show spinner if pending
+                if st.session_state.get("pending_user_message", False):
+                    with st.chat_message("ai"):
+                        st.write(":hourglass_flowing_sand: Thinking...")
             # --- Chat input and feedback always visible below ---
             if user_input := st.chat_input():
                 messages.append(ChatMessage(type="human", content=user_input))
-                st.chat_message("human").write(user_input)
-                try:
-                    agent_config = {}
-                    if st.session_state.selected_file_id:
-                        file_metadata = next((f for f in st.session_state.files if f.file_id == st.session_state.selected_file_id), None)
-                        if file_metadata:
-                            file_context = {
-                                "file_id": file_metadata.file_id,
-                                "filename": file_metadata.filename,
-                                "channel_count": file_metadata.channel_count,
-                                "duration": file_metadata.duration,
-                            }
-                            if st.session_state.selected_file_metadata:
-                                metadata = st.session_state.selected_file_metadata
-                                file_context.update({
-                                    "start_time": metadata.start_time,
-                                    "end_time": metadata.end_time,
-                                    "sample_count": metadata.sample_count,
-                                    "file_type": metadata.file_type,
-                                })
-                                # Always include full channel list and details (unless too large)
-                                channel_dict = metadata.channels or {}
-                                channel_names = list(channel_dict.keys())
-                                file_context["available_channels"] = channel_names
-                                # If too many channels, only send schema
-                                if len(channel_names) > 200:
-                                    file_context["channel_schema_only"] = True
-                                    file_context["channel_schema_warning"] = (
-                                        f"File has {len(channel_names)} channels. Only channel names and types are included in context to avoid LLM token overflow. "
-                                        "Ask for a specific channel to get details."
-                                    )
-                                    file_context["channel_types"] = {
-                                        name: getattr(channel, "data_type", None) for name, channel in channel_dict.items()
-                                    }
-                                else:
-                                    file_context["channel_details"] = {
-                                        name: {
-                                            "unit": channel.unit,
-                                            "min_value": channel.min_value,
-                                            "max_value": channel.max_value,
-                                            "sampling_rate": channel.sampling_rate,
-                                            "description": channel.description,
-                                            "ecu": channel.ecu,
-                                            "data_type": getattr(channel, "data_type", None),
+                st.session_state.pending_user_message = True
+                st.rerun()
+            # --- Pending message agent call logic ---
+            if st.session_state.get("pending_user_message", False):
+                # Only trigger if last message is from user and not yet answered
+                if len(messages) > 0 and (len(messages) == 1 or messages[-1].type == "human"):
+                    try:
+                        agent_config = {}
+                        if st.session_state.selected_file_id:
+                            file_metadata = next((f for f in st.session_state.files if f.file_id == st.session_state.selected_file_id), None)
+                            if file_metadata:
+                                file_context = {
+                                    "file_id": file_metadata.file_id,
+                                    "filename": file_metadata.filename,
+                                    "channel_count": file_metadata.channel_count,
+                                    "duration": file_metadata.duration,
+                                }
+                                if st.session_state.selected_file_metadata:
+                                    metadata = st.session_state.selected_file_metadata
+                                    file_context.update({
+                                        "start_time": metadata.start_time,
+                                        "end_time": metadata.end_time,
+                                        "sample_count": metadata.sample_count,
+                                        "file_type": metadata.file_type,
+                                    })
+                                    channel_dict = metadata.channels or {}
+                                    channel_names = list(channel_dict.keys())
+                                    file_context["available_channels"] = channel_names
+                                    if len(channel_names) > 200:
+                                        file_context["channel_schema_only"] = True
+                                        file_context["channel_schema_warning"] = (
+                                            f"File has {len(channel_names)} channels. Only channel names and types are included in context to avoid LLM token overflow. "
+                                            "Ask for a specific channel to get details."
+                                        )
+                                        file_context["channel_types"] = {
+                                            name: getattr(channel, "data_type", None) for name, channel in channel_dict.items()
                                         }
-                                        for name, channel in channel_dict.items()
-                                    }
-                                # Still include selected channels for UI context
-                                if hasattr(st.session_state, 'selected_channels') and st.session_state.selected_channels:
-                                    file_context["selected_channels"] = st.session_state.selected_channels
-                                    
-                                # Add plot config for LLM context
-                                plot_config = st.session_state.get("plot_config", {})
-                                if plot_config and plot_config.get("channels"):
-                                    file_context["current_plot"] = {
-                                        "channels": plot_config.get("channels", []),
-                                        "start_time": plot_config.get("start_time"),
-                                        "end_time": plot_config.get("end_time"),
-                                        "has_overlays": bool(plot_config.get("overlays")),
-                                        "has_annotations": bool(plot_config.get("annotations")),
-                                    }
-                            agent_config["current_file"] = file_context
-                    if use_streaming:
-                        stream = agent_client.astream(
-                            message=user_input,
-                            model=model,
-                            thread_id=st.session_state.thread_id,
-                            agent_config=agent_config,
-                        )
-                        await draw_messages(stream, is_new=True)
-                    else:
-                        response = await agent_client.ainvoke(
-                            message=user_input,
-                            model=model,
-                            thread_id=st.session_state.thread_id,
-                            agent_config=agent_config,
-                        )
-                        messages.append(response)
-                        st.chat_message("ai").write(response.content)
-                    st.rerun()
-                except AgentClientError as e:
-                    st.error(f"Error generating response: {e}")
-                    st.stop()
+                                    else:
+                                        file_context["channel_details"] = {
+                                            name: {
+                                                "unit": channel.unit,
+                                                "min_value": channel.min_value,
+                                                "max_value": channel.max_value,
+                                                "sampling_rate": channel.sampling_rate,
+                                                "description": channel.description,
+                                                "ecu": channel.ecu,
+                                                "data_type": getattr(channel, "data_type", None),
+                                            }
+                                            for name, channel in channel_dict.items()
+                                        }
+                                    if hasattr(st.session_state, 'selected_channels') and st.session_state.selected_channels:
+                                        file_context["selected_channels"] = st.session_state.selected_channels
+                                    plot_config = st.session_state.get("plot_config", {})
+                                    if plot_config and plot_config.get("channels"):
+                                        file_context["current_plot"] = {
+                                            "channels": plot_config.get("channels", []),
+                                            "start_time": plot_config.get("start_time"),
+                                            "end_time": plot_config.get("end_time"),
+                                            "has_overlays": bool(plot_config.get("overlays")),
+                                            "has_annotations": bool(plot_config.get("annotations")),
+                                        }
+                                agent_config["current_file"] = file_context
+                        if use_streaming:
+                            stream = agent_client.astream(
+                                message=messages[-1].content,
+                                model=model,
+                                thread_id=st.session_state.thread_id,
+                                agent_config=agent_config,
+                            )
+                            response = None
+                            async for msg in stream:
+                                response = msg
+                            if response:
+                                messages.append(response)
+                        else:
+                            response = await agent_client.ainvoke(
+                                message=messages[-1].content,
+                                model=model,
+                                thread_id=st.session_state.thread_id,
+                                agent_config=agent_config,
+                            )
+                            messages.append(response)
+                        st.session_state.pending_user_message = False
+                        st.rerun()
+                    except AgentClientError as e:
+                        st.error(f"Error generating response: {e}")
+                        st.session_state.pending_user_message = False
+                        st.stop()
             if len(messages) > 0 and st.session_state.last_message:
                 with st.session_state.last_message:
                     await handle_feedback()
