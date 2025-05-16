@@ -8,7 +8,7 @@
     },
     "research": {
       "provider": "openai",
-      "modelId": "gpt-4o-mini-search-preview",
+      "modelId": "gpt-4o",
       "maxTokens": 8700,
       "temperature": 0.1
     },

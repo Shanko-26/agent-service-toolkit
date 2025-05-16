@@ -50,6 +50,65 @@ async def main() -> None:
         layout="wide",
     )
 
+    # --- Compact CSS for font and padding ---
+    st.markdown(
+        """
+        <style>
+        html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            box-sizing: border-box !important;
+        }
+        [data-testid="stAppViewContainer"] {
+            padding: 0 !important;
+            margin: 0 !important;
+            box-sizing: border-box !important;
+        }
+        [data-testid="stAppViewContainer"] > .main {
+            padding: 0 !important;
+            margin: 0 !important;
+            box-sizing: border-box !important;
+        }
+        [data-testid="stAppViewContainer"] > .main .block-container {
+            padding: 0 !important;
+            margin: 0 !important;
+            box-sizing: border-box !important;
+        }
+        /* Minimal gutter for content (optional, adjust as needed) */
+        [data-testid="stAppViewContainer"] > .main .block-container {
+            padding-left: 0rem !important;
+            padding-right: 0rem !important;
+        }
+        /* --- Typography and UI tweaks --- */
+        h1, h2, h3, h4, h5, h6, .stHeader, .stSubheader {
+            font-size: 1.1em !important;
+            margin-bottom: 0.15em !important;
+            margin-top: 0.1em !important;
+            padding-top: 0.1em !important;
+            padding-bottom: 0.1em !important;
+        }
+        .stButton>button, .stTextInput>div>input, .stTextArea>div>textarea, .stSelectbox>div>div {
+            font-size: 0.9em !important;
+            padding: 0.2em 0.1em !important;
+        }
+        .stChatMessage, .stMarkdown, .stDataFrame, .stTable, .stMetric {
+            font-size: 0.97em !important;
+        }
+        .stForm, .stFormContainer, .stExpander, .stPopover {
+            padding: 0.3em 0.5em !important;
+        }
+        .stTabs, .stRadio, .stSelectbox, .stMultiselect {
+            margin-bottom: 0.2em !important;
+        }
+        /* --- Shrink column gap and internal column padding --- */
+        .css-1cpxqw2 { gap: 0.4rem !important; }
+        [data-testid="column"] { padding-left: 0rem !important; padding-right: 0rem !important; }
+        /* --- Chat panel tweaks remain unchanged --- */
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     # Hide the streamlit upper-right chrome
     st.html(
         """
@@ -157,134 +216,152 @@ async def main() -> None:
             st.error(f"Error loading file metadata: {e}")
             st.session_state.selected_file_metadata = None
 
-    # 3-column layout: left (controls), center (plot), right (chat)
-    left, center, right = st.columns([1, 2, 1], gap="large")
+    # Add collapse/expand state for left and right panels
+    if "collapse_left" not in st.session_state:
+        st.session_state.collapse_left = False
+    if "collapse_right" not in st.session_state:
+        st.session_state.collapse_right = False
+
+    # Set column widths based on collapse state
+    left_width = 0.07 if st.session_state.collapse_left else 1
+    right_width = 0.07 if st.session_state.collapse_right else 1
+    center_width = 6 if st.session_state.collapse_left or st.session_state.collapse_right else 2
+    left, center, right = st.columns([left_width, center_width, right_width], gap="large")
 
     # --- LEFT COLUMN: Controls, file upload, settings ---
     with left:
-        st.header(f"{APP_ICON} {APP_TITLE}")
-        ""
-        "Interact with automotive measurement data using natural language"
-        ""
-        if st.button(":material/chat: New Chat", use_container_width=True):
-            st.session_state.messages = []
-            st.session_state.thread_id = str(uuid.uuid4())
-            st.rerun()
-        st.subheader("📁 Data Files")
-        with st.form("file_upload_form", clear_on_submit=True):
-            uploaded_file = st.file_uploader(
-                "Upload MDF File",
-                type=["mf4", "mdf", "dat"],
-                help="Upload automotive measurement data files (MDF3 or MDF4 format)"
-            )
-            file_description = st.text_area("Description (optional)", height=68)
-            submit_button = st.form_submit_button("Upload")
-            if submit_button and uploaded_file is not None:
-                try:
-                    with st.spinner("Uploading and processing file..."):
-                        file_content = uploaded_file.getvalue()
-                        filename = uploaded_file.name
-                        response = await file_client.upload_file(
-                            file_content=file_content,
-                            filename=filename,
-                            description=file_description if file_description else None
-                        )
-                        if response.status == "ok":
-                            st.success(f"Successfully uploaded: {filename}")
-                            st.session_state.files = await file_client.list_files()
-                            st.session_state.selected_file_id = response.file_id
-                            st.session_state.selected_file_metadata = None
-                            st.toast(f"File list updated, found {len(st.session_state.files)} files")
-                        else:
-                            st.warning(f"Upload issue: {response.message}")
-                except FileClientError as e:
-                    st.error(f"Error uploading file: {e}")
-        if len(st.session_state.files) > 0:
-            st.write("Available files:")
-            for file in st.session_state.files:
-                col1, col2 = st.columns([4, 1])
-                is_selected = st.session_state.selected_file_id == file.file_id
-                with col1:
-                    if st.button(
-                        f"{'📌 ' if is_selected else '📄 '}{file.filename}",
-                        key=f"file_{file.file_id}",
-                        help=f"{file.description or 'No description'}\nChannels: {file.channel_count}",
-                        use_container_width=True,
-                    ):
-                        st.session_state.selected_file_id = file.file_id
-                        st.session_state.selected_file_metadata = None
-                        st.toast(f"Selected file: {file.filename}")
-                        st.rerun()
-                with col2:
-                    if st.button(
-                        "🗑️",
-                        key=f"delete_{file.file_id}",
-                        help=f"Delete {file.filename}",
-                    ):
-                        try:
-                            with st.spinner("Deleting file..."):
-                                await file_client.delete_file(file.file_id)
-                                st.session_state.files = await file_client.list_files()
-                                if st.session_state.selected_file_id == file.file_id:
-                                    st.session_state.selected_file_id = None
-                                    if file.file_id in st.session_state.file_context:
-                                        del st.session_state.file_context[file.file_id]
-                                st.success(f"Deleted {file.filename}")
-                                st.rerun()
-                        except FileClientError as e:
-                            st.error(f"Error deleting file: {e}")
-            if st.button("🔄 Refresh Files"):
-                try:
-                    with st.spinner("Refreshing files..."):
-                        st.session_state.files = await file_client.list_files()
-                        st.success("Files refreshed")
-                        st.rerun()
-                except FileClientError as e:
-                    st.error(f"Error refreshing files: {e}")
+        if st.session_state.collapse_left:
+            if st.button("➡️", key="expand_left_btn", help="Expand sidebar", use_container_width=True):
+                st.session_state.collapse_left = False
+                st.rerun()
+            st.write("")
         else:
-            st.info("No files uploaded yet. Upload an MDF file to get started.")
-        with st.popover(":material/settings: Settings", use_container_width=True):
-            model_idx = agent_client.info.models.index(agent_client.info.default_model)
-            model = st.selectbox("LLM to use", options=agent_client.info.models, index=model_idx)
-            agent_list = [a.key for a in agent_client.info.agents]
-            default_agent = "automotive"
-            agent_idx = agent_list.index(default_agent) if default_agent in agent_list else agent_list.index(agent_client.info.default_agent)
-            agent_client.agent = st.selectbox(
-                "Agent to use",
-                options=agent_list,
-                index=agent_idx,
-            )
-            use_streaming = st.toggle("Stream results", value=True)
-        @st.dialog("Architecture")
-        def architecture_dialog() -> None:
-            st.image(
-                "https://github.com/JoshuaC215/agent-service-toolkit/blob/main/media/agent_architecture.png?raw=true"
-            )
-            "[View full size on Github](https://github.com/JoshuaC215/agent-service-toolkit/blob/main/media/agent_architecture.png)"
-            st.caption(
-                "App hosted on [Streamlit Cloud](https://share.streamlit.io/) with FastAPI service running in [Azure](https://learn.microsoft.com/en-us/azure/app-service/)"
-            )
-        if st.button(":material/schema: Architecture", use_container_width=True):
-            architecture_dialog()
-        with st.popover(":material/policy: Privacy", use_container_width=True):
-            st.write(
-                "Prompts, responses and feedback in this app are anonymously recorded and saved to LangSmith for product evaluation and improvement purposes only."
-            )
-        @st.dialog("Share/resume chat")
-        def share_chat_dialog() -> None:
-            session = st.runtime.get_instance()._session_mgr.list_active_sessions()[0]
-            st_base_url = urllib.parse.urlunparse(
-                [session.client.request.protocol, session.client.request.host, "", "", "", ""]
-            )
-            if not st_base_url.startswith("https") and "localhost" not in st_base_url:
-                st_base_url = st_base_url.replace("http", "https")
-            chat_url = f"{st_base_url}?thread_id={st.session_state.thread_id}"
-            st.markdown(f"**Chat URL:**\n```text\n{chat_url}\n```")
-            st.info("Copy the above URL to share or revisit this chat")
-        if st.button(":material/upload: Share/resume chat", use_container_width=True):
-            share_chat_dialog()
-        "[View the source code](https://github.com/JoshuaC215/agent-service-toolkit)"
-        st.caption("Based on agent-service-toolkit by Joshua")
+            if st.button("⬅️", key="collapse_left_btn", help="Collapse sidebar", use_container_width=True):
+                st.session_state.collapse_left = True
+                st.rerun()
+            st.header(f"{APP_ICON} {APP_TITLE}")
+            ""
+            "Interact with automotive measurement data using natural language"
+            ""
+            if st.button(":material/chat: New Chat", use_container_width=True):
+                st.session_state.messages = []
+                st.session_state.thread_id = str(uuid.uuid4())
+                st.rerun()
+            st.subheader("📁 Data Files")
+            with st.form("file_upload_form", clear_on_submit=True):
+                uploaded_file = st.file_uploader(
+                    "Upload MDF File",
+                    type=["mf4", "mdf", "dat"],
+                    help="Upload automotive measurement data files (MDF3 or MDF4 format)"
+                )
+                file_description = st.text_area("Description (optional)", height=68)
+                submit_button = st.form_submit_button("Upload")
+                if submit_button and uploaded_file is not None:
+                    try:
+                        with st.spinner("Uploading and processing file..."):
+                            file_content = uploaded_file.getvalue()
+                            filename = uploaded_file.name
+                            response = await file_client.upload_file(
+                                file_content=file_content,
+                                filename=filename,
+                                description=file_description if file_description else None
+                            )
+                            if response.status == "ok":
+                                st.success(f"Successfully uploaded: {filename}")
+                                st.session_state.files = await file_client.list_files()
+                                st.session_state.selected_file_id = response.file_id
+                                st.session_state.selected_file_metadata = None
+                                st.toast(f"File list updated, found {len(st.session_state.files)} files")
+                            else:
+                                st.warning(f"Upload issue: {response.message}")
+                    except FileClientError as e:
+                        st.error(f"Error uploading file: {e}")
+            if len(st.session_state.files) > 0:
+                st.write("Available files:")
+                for file in st.session_state.files:
+                    col1, col2 = st.columns([4, 1])
+                    is_selected = st.session_state.selected_file_id == file.file_id
+                    with col1:
+                        if st.button(
+                            f"{'📌 ' if is_selected else '📄 '}{file.filename}",
+                            key=f"file_{file.file_id}",
+                            help=f"{file.description or 'No description'}\nChannels: {file.channel_count}",
+                            use_container_width=True,
+                        ):
+                            st.session_state.selected_file_id = file.file_id
+                            st.session_state.selected_file_metadata = None
+                            st.toast(f"Selected file: {file.filename}")
+                            st.rerun()
+                    with col2:
+                        if st.button(
+                            "🗑️",
+                            key=f"delete_{file.file_id}",
+                            help=f"Delete {file.filename}",
+                        ):
+                            try:
+                                with st.spinner("Deleting file..."):
+                                    await file_client.delete_file(file.file_id)
+                                    st.session_state.files = await file_client.list_files()
+                                    if st.session_state.selected_file_id == file.file_id:
+                                        st.session_state.selected_file_id = None
+                                        if file.file_id in st.session_state.file_context:
+                                            del st.session_state.file_context[file.file_id]
+                                    st.success(f"Deleted {file.filename}")
+                                    st.rerun()
+                            except FileClientError as e:
+                                st.error(f"Error deleting file: {e}")
+                if st.button("🔄 Refresh Files"):
+                    try:
+                        with st.spinner("Refreshing files..."):
+                            st.session_state.files = await file_client.list_files()
+                            st.success("Files refreshed")
+                            st.rerun()
+                    except FileClientError as e:
+                        st.error(f"Error refreshing files: {e}")
+            else:
+                st.info("No files uploaded yet. Upload an MDF file to get started.")
+            with st.popover(":material/settings: Settings", use_container_width=True):
+                model_idx = agent_client.info.models.index(agent_client.info.default_model)
+                model = st.selectbox("LLM to use", options=agent_client.info.models, index=model_idx)
+                agent_list = [a.key for a in agent_client.info.agents]
+                default_agent = "automotive"
+                agent_idx = agent_list.index(default_agent) if default_agent in agent_list else agent_list.index(agent_client.info.default_agent)
+                agent_client.agent = st.selectbox(
+                    "Agent to use",
+                    options=agent_list,
+                    index=agent_idx,
+                )
+                use_streaming = st.toggle("Stream results", value=True)
+            @st.dialog("Architecture")
+            def architecture_dialog() -> None:
+                st.image(
+                    "https://github.com/JoshuaC215/agent-service-toolkit/blob/main/media/agent_architecture.png?raw=true"
+                )
+                "[View full size on Github](https://github.com/JoshuaC215/agent-service-toolkit/blob/main/media/agent_architecture.png)"
+                st.caption(
+                    "App hosted on [Streamlit Cloud](https://share.streamlit.io/) with FastAPI service running in [Azure](https://learn.microsoft.com/en-us/azure/app-service/)"
+                )
+            if st.button(":material/schema: Architecture", use_container_width=True):
+                architecture_dialog()
+            with st.popover(":material/policy: Privacy", use_container_width=True):
+                st.write(
+                    "Prompts, responses and feedback in this app are anonymously recorded and saved to LangSmith for product evaluation and improvement purposes only."
+                )
+            @st.dialog("Share/resume chat")
+            def share_chat_dialog() -> None:
+                session = st.runtime.get_instance()._session_mgr.list_active_sessions()[0]
+                st_base_url = urllib.parse.urlunparse(
+                    [session.client.request.protocol, session.client.request.host, "", "", "", ""]
+                )
+                if not st_base_url.startswith("https") and "localhost" not in st_base_url:
+                    st_base_url = st_base_url.replace("http", "https")
+                chat_url = f"{st_base_url}?thread_id={st.session_state.thread_id}"
+                st.markdown(f"**Chat URL:**\n```text\n{chat_url}\n```")
+                st.info("Copy the above URL to share or revisit this chat")
+            if st.button(":material/upload: Share/resume chat", use_container_width=True):
+                share_chat_dialog()
+            "[View the source code](https://github.com/JoshuaC215/agent-service-toolkit)"
+            st.caption("Based on agent-service-toolkit by Joshua")
 
     # --- CENTER COLUMN: Plot area placeholder and file metadata ---
     with center:
@@ -411,12 +488,10 @@ async def main() -> None:
         if st.session_state.selected_file_metadata:
             metadata = st.session_state.selected_file_metadata
             tab_names = ["📊 File Metadata", "📈 Signal Browser"]
-            # Persist selected tab in session state
             if "selected_tab" not in st.session_state:
                 st.session_state.selected_tab = tab_names[0]
-            selected_tab = st.radio("Select view", tab_names, index=tab_names.index(st.session_state.selected_tab), key="tab_selector")
-            st.session_state.selected_tab = selected_tab
-            if selected_tab == "📊 File Metadata":
+            selected_tab = st.radio("Select view", tab_names, key="selected_tab")
+            if st.session_state.selected_tab == "📊 File Metadata":
                 st.subheader(f"File: {metadata.filename}")
                 col1, col2 = st.columns(2)
                 with col1:
@@ -462,7 +537,7 @@ async def main() -> None:
                         if len(metadata.channels) > 5:
                             st.write(f"*...and {len(metadata.channels) - 5} more*")
                     st.info("👉 Use the **Signal Browser** tab to explore and select channels for plotting")
-            elif selected_tab == "📈 Signal Browser":
+            elif st.session_state.selected_tab == "📈 Signal Browser":
                 st.subheader("Select Signals to Plot")
                 # Prepare channel data for the signal browser
                 channels_data = []
@@ -510,15 +585,13 @@ async def main() -> None:
                     ]
                 st.write(f"Showing {len(filtered_channels)} of {len(channels_data)} signals")
                 signal_options = [channel["Name"] for channel in filtered_channels]
-                selected_signals = st.multiselect(
+                st.multiselect(
                     "Select signals to plot",
                     options=signal_options,
-                    default=st.session_state.selected_channels,
-                    key="signal_selector_customtab"
+                    key="selected_channels"
                 )
-                st.session_state.selected_channels = selected_signals
-                if selected_signals:
-                    st.write(f"Selected {len(selected_signals)} signals")
+                if st.session_state.selected_channels:
+                    st.write(f"Selected {len(st.session_state.selected_channels)} signals")
                     
                     # Create plot button with loading state
                     plot_button = st.button(
@@ -531,10 +604,10 @@ async def main() -> None:
                     
                     if plot_button:
                         # Create a toast notification
-                        st.toast(f"Plotting {len(selected_signals)} signals...")
+                        st.toast(f"Plotting {len(st.session_state.selected_channels)} signals...")
                         
                         # Update plot configuration with selected signals
-                        update_plot_config(channels=selected_signals, action_source="user")
+                        update_plot_config(channels=st.session_state.selected_channels, action_source="user")
                         
                         # Scroll to top to see the plot
                         st.query_params["view"] = "plots"
@@ -544,7 +617,7 @@ async def main() -> None:
                     
                     selected_channel_data = [
                         channel for channel in filtered_channels
-                        if channel["Name"] in selected_signals
+                        if channel["Name"] in st.session_state.selected_channels
                     ]
                     if selected_channel_data:
                         with st.expander("Selected Signal Details", expanded=False):
@@ -559,118 +632,126 @@ async def main() -> None:
 
     # --- RIGHT COLUMN: Chat UI ---
     with right:
-        st.header("Chat")
-        messages: list[ChatMessage] = st.session_state.messages
-        if len(messages) == 0:
-            agent_message = "Hello! I'm your automotive data copilot. Upload MDF files and ask me questions about the data."
-            if st.session_state.selected_file_id:
-                file_metadata = next((f for f in st.session_state.files if f.file_id == st.session_state.selected_file_id), None)
-                if file_metadata:
-                    agent_message += f"\n\nI see you've selected the file '{file_metadata.filename}'. What would you like to know about this data?"
-                    if st.session_state.selected_file_metadata and st.session_state.selected_file_metadata.channels:
-                        channel_count = len(st.session_state.selected_file_metadata.channels)
-                        sample_channels = list(st.session_state.selected_file_metadata.channels.keys())[:3]
-                        agent_message += f"\n\nThis file contains {channel_count} channels. Some examples include: {', '.join(sample_channels)}."
-                        agent_message += "\n\nYou can ask me to analyze specific channels, plot data, find anomalies, or calculate statistics."
-            with st.chat_message("ai"):
-                st.write(agent_message)
-        async def amessage_iter() -> AsyncGenerator[ChatMessage, None]:
-            for m in messages:
-                yield m
-        await draw_messages(amessage_iter())
-        if user_input := st.chat_input():
-            messages.append(ChatMessage(type="human", content=user_input))
-            st.chat_message("human").write(user_input)
-            try:
-                agent_config = {}
-                if st.session_state.selected_file_id:
-                    file_metadata = next((f for f in st.session_state.files if f.file_id == st.session_state.selected_file_id), None)
-                    if file_metadata:
-                        file_context = {
-                            "file_id": file_metadata.file_id,
-                            "filename": file_metadata.filename,
-                            "channel_count": file_metadata.channel_count,
-                            "duration": file_metadata.duration,
-                        }
-                        if st.session_state.selected_file_metadata:
-                            metadata = st.session_state.selected_file_metadata
-                            file_context.update({
-                                "start_time": metadata.start_time,
-                                "end_time": metadata.end_time,
-                                "sample_count": metadata.sample_count,
-                                "file_type": metadata.file_type,
-                            })
-                            # Always include full channel list and details (unless too large)
-                            channel_dict = metadata.channels or {}
-                            channel_names = list(channel_dict.keys())
-                            file_context["available_channels"] = channel_names
-                            # If too many channels, only send schema
-                            if len(channel_names) > 200:
-                                file_context["channel_schema_only"] = True
-                                file_context["channel_schema_warning"] = (
-                                    f"File has {len(channel_names)} channels. Only channel names and types are included in context to avoid LLM token overflow. "
-                                    "Ask for a specific channel to get details."
-                                )
-                                file_context["channel_types"] = {
-                                    name: getattr(channel, "data_type", None) for name, channel in channel_dict.items()
-                                }
-                            else:
-                                file_context["channel_details"] = {
-                                    name: {
-                                        "unit": channel.unit,
-                                        "min_value": channel.min_value,
-                                        "max_value": channel.max_value,
-                                        "sampling_rate": channel.sampling_rate,
-                                        "description": channel.description,
-                                        "ecu": channel.ecu,
-                                        "data_type": getattr(channel, "data_type", None),
-                                    }
-                                    for name, channel in channel_dict.items()
-                                }
-                            # Still include selected channels for UI context
-                            if hasattr(st.session_state, 'selected_channels') and st.session_state.selected_channels:
-                                file_context["selected_channels"] = st.session_state.selected_channels
-                                
-                            # Add plot config for LLM context
-                            plot_config = st.session_state.get("plot_config", {})
-                            if plot_config and plot_config.get("channels"):
-                                file_context["current_plot"] = {
-                                    "channels": plot_config.get("channels", []),
-                                    "start_time": plot_config.get("start_time"),
-                                    "end_time": plot_config.get("end_time"),
-                                    "has_overlays": bool(plot_config.get("overlays")),
-                                    "has_annotations": bool(plot_config.get("annotations")),
-                                }
-                        agent_config["current_file"] = file_context
-                        
-                        # Register tool handlers
-                        agent_config["tool_handlers"] = {
-                            "plot_signals": handle_llm_tool_call
-                        }
-                if use_streaming:
-                    stream = agent_client.astream(
-                        message=user_input,
-                        model=model,
-                        thread_id=st.session_state.thread_id,
-                        agent_config=agent_config,
-                    )
-                    await draw_messages(stream, is_new=True)
-                else:
-                    response = await agent_client.ainvoke(
-                        message=user_input,
-                        model=model,
-                        thread_id=st.session_state.thread_id,
-                        agent_config=agent_config,
-                    )
-                    messages.append(response)
-                    st.chat_message("ai").write(response.content)
+        if st.session_state.collapse_right:
+            if st.button("⬅️", key="expand_right_btn", help="Expand chat panel", use_container_width=True):
+                st.session_state.collapse_right = False
                 st.rerun()
-            except AgentClientError as e:
-                st.error(f"Error generating response: {e}")
-                st.stop()
-        if len(messages) > 0 and st.session_state.last_message:
-            with st.session_state.last_message:
-                await handle_feedback()
+            st.write("")
+        else:
+            if st.button("➡️", key="collapse_right_btn", help="Collapse chat panel", use_container_width=True):
+                st.session_state.collapse_right = True
+                st.rerun()
+            st.header("Chat")
+            # --- Scrollable chat message area ---
+            chat_height = 700  # px, adjust as needed for your layout
+            with st.container(height=chat_height):
+                messages: list[ChatMessage] = st.session_state.messages
+                if len(messages) == 0:
+                    agent_message = "Hello! I'm your automotive data copilot. Upload MDF files and ask me questions about the data."
+                    if st.session_state.selected_file_id:
+                        file_metadata = next((f for f in st.session_state.files if f.file_id == st.session_state.selected_file_id), None)
+                        if file_metadata:
+                            agent_message += f"\n\nI see you've selected the file '{file_metadata.filename}'. What would you like to know about this data?"
+                            if st.session_state.selected_file_metadata and st.session_state.selected_file_metadata.channels:
+                                channel_count = len(st.session_state.selected_file_metadata.channels)
+                                sample_channels = list(st.session_state.selected_file_metadata.channels.keys())[:3]
+                                agent_message += f"\n\nThis file contains {channel_count} channels. Some examples include: {', '.join(sample_channels)}."
+                                agent_message += "\n\nYou can ask me to analyze specific channels, plot data, find anomalies, or calculate statistics."
+                    with st.chat_message("ai"):
+                        st.write(agent_message)
+                async def amessage_iter() -> AsyncGenerator[ChatMessage, None]:
+                    for m in messages:
+                        yield m
+                await draw_messages(amessage_iter())
+            # --- Chat input and feedback always visible below ---
+            if user_input := st.chat_input():
+                messages.append(ChatMessage(type="human", content=user_input))
+                st.chat_message("human").write(user_input)
+                try:
+                    agent_config = {}
+                    if st.session_state.selected_file_id:
+                        file_metadata = next((f for f in st.session_state.files if f.file_id == st.session_state.selected_file_id), None)
+                        if file_metadata:
+                            file_context = {
+                                "file_id": file_metadata.file_id,
+                                "filename": file_metadata.filename,
+                                "channel_count": file_metadata.channel_count,
+                                "duration": file_metadata.duration,
+                            }
+                            if st.session_state.selected_file_metadata:
+                                metadata = st.session_state.selected_file_metadata
+                                file_context.update({
+                                    "start_time": metadata.start_time,
+                                    "end_time": metadata.end_time,
+                                    "sample_count": metadata.sample_count,
+                                    "file_type": metadata.file_type,
+                                })
+                                # Always include full channel list and details (unless too large)
+                                channel_dict = metadata.channels or {}
+                                channel_names = list(channel_dict.keys())
+                                file_context["available_channels"] = channel_names
+                                # If too many channels, only send schema
+                                if len(channel_names) > 200:
+                                    file_context["channel_schema_only"] = True
+                                    file_context["channel_schema_warning"] = (
+                                        f"File has {len(channel_names)} channels. Only channel names and types are included in context to avoid LLM token overflow. "
+                                        "Ask for a specific channel to get details."
+                                    )
+                                    file_context["channel_types"] = {
+                                        name: getattr(channel, "data_type", None) for name, channel in channel_dict.items()
+                                    }
+                                else:
+                                    file_context["channel_details"] = {
+                                        name: {
+                                            "unit": channel.unit,
+                                            "min_value": channel.min_value,
+                                            "max_value": channel.max_value,
+                                            "sampling_rate": channel.sampling_rate,
+                                            "description": channel.description,
+                                            "ecu": channel.ecu,
+                                            "data_type": getattr(channel, "data_type", None),
+                                        }
+                                        for name, channel in channel_dict.items()
+                                    }
+                                # Still include selected channels for UI context
+                                if hasattr(st.session_state, 'selected_channels') and st.session_state.selected_channels:
+                                    file_context["selected_channels"] = st.session_state.selected_channels
+                                    
+                                # Add plot config for LLM context
+                                plot_config = st.session_state.get("plot_config", {})
+                                if plot_config and plot_config.get("channels"):
+                                    file_context["current_plot"] = {
+                                        "channels": plot_config.get("channels", []),
+                                        "start_time": plot_config.get("start_time"),
+                                        "end_time": plot_config.get("end_time"),
+                                        "has_overlays": bool(plot_config.get("overlays")),
+                                        "has_annotations": bool(plot_config.get("annotations")),
+                                    }
+                            agent_config["current_file"] = file_context
+                    if use_streaming:
+                        stream = agent_client.astream(
+                            message=user_input,
+                            model=model,
+                            thread_id=st.session_state.thread_id,
+                            agent_config=agent_config,
+                        )
+                        await draw_messages(stream, is_new=True)
+                    else:
+                        response = await agent_client.ainvoke(
+                            message=user_input,
+                            model=model,
+                            thread_id=st.session_state.thread_id,
+                            agent_config=agent_config,
+                        )
+                        messages.append(response)
+                        st.chat_message("ai").write(response.content)
+                    st.rerun()
+                except AgentClientError as e:
+                    st.error(f"Error generating response: {e}")
+                    st.stop()
+            if len(messages) > 0 and st.session_state.last_message:
+                with st.session_state.last_message:
+                    await handle_feedback()
 
 
 async def draw_messages(
